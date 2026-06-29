@@ -6,8 +6,7 @@ import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { Loader2 } from "lucide-react";
+import { Loader2, Mail } from "lucide-react";
 
 function MicrosoftIcon() {
   return (
@@ -55,17 +54,25 @@ export function LoginForm() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
-        <p className="text-sm text-muted-foreground">Sign in to the Mercado Ahorros CRM</p>
+    <div className="space-y-8">
+      <div className="space-y-2">
+        <h1 className="text-3xl font-semibold tracking-tight">Sign in</h1>
+        <p className="text-sm text-muted-foreground">
+          Access is invitation-only.{" "}
+          <Link
+            href="/sign-up"
+            className="font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            Need access?
+          </Link>
+        </p>
       </div>
 
       <div className="space-y-4">
         <Button
           type="button"
           variant="outline"
-          className="h-10 w-full"
+          className="h-11 w-full text-sm"
           onClick={signInMicrosoft}
           disabled={loading !== null}
         >
@@ -73,69 +80,72 @@ export function LoginForm() {
           Continue with Microsoft
         </Button>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span className="h-px flex-1 bg-border" />
+          OR
+          <span className="h-px flex-1 bg-border" />
+        </div>
 
         {!showEmail ? (
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={() => setShowEmail(true)}
-              className="text-sm text-muted-foreground underline-offset-4 hover:underline"
-            >
-              Sign in with email (owner account)
-            </button>
-          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11 w-full text-sm"
+            onClick={() => setShowEmail(true)}
+            disabled={loading !== null}
+          >
+            <Mail />
+            Sign in with email
+          </Button>
         ) : (
-          <form onSubmit={signInEmail} className="space-y-3">
-            <div className="relative py-1">
-              <Separator />
-              <span className="absolute inset-0 -top-2 mx-auto w-fit bg-background px-2 text-xs text-muted-foreground">
-                owner account
-              </span>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="email">Email</Label>
+          <form onSubmit={signInEmail} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="email">Email address</Label>
               <Input
                 id="email"
                 type="email"
                 autoComplete="username"
+                className="h-11"
+                placeholder="owner@mercadoahorros.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                autoFocus
               />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
                 <Link
                   href="/reset"
-                  className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+                  className="text-xs font-medium text-muted-foreground underline-offset-4 hover:underline"
                 >
-                  Forgot password?
+                  Forgot?
                 </Link>
               </div>
               <Input
                 id="password"
                 type="password"
                 autoComplete="current-password"
+                className="h-11"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
               />
             </div>
-            <Button type="submit" className="h-10 w-full" disabled={loading !== null}>
+            <Button type="submit" className="h-11 w-full" disabled={loading !== null}>
               {loading === "email" && <Loader2 className="animate-spin" />}
               Sign in
             </Button>
           </form>
         )}
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
       </div>
 
-      <p className="text-center text-xs text-muted-foreground">
-        Access is invitation-only.{" "}
-        <Link href="/sign-up" className="underline-offset-4 hover:underline">
-          Need access?
-        </Link>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        Owner accounts sign in with email and password; everyone else continues with Microsoft
+        using their invited address.
       </p>
     </div>
   );
