@@ -32,3 +32,18 @@ export function useCan(permission: string) {
 export function Can({ permission, children }: { permission: string; children: React.ReactNode }) {
   return useCan(permission) ? <>{children}</> : null;
 }
+
+const PRIVILEGED_ROLES = new Set(["owner", "admin"]);
+
+/** True for Owner/Admin — who may manage the invitation allowlist (the auth service enforces). */
+export function useIsPrivileged() {
+  const { roles } = useContext(PermissionsContext);
+  return roles
+    .flatMap((r) => r.split(","))
+    .some((r) => PRIVILEGED_ROLES.has(r.trim().toLowerCase()));
+}
+
+/** Render children only for Owner/Admin. UX gating only — the auth service still enforces. */
+export function RequirePrivileged({ children }: { children: React.ReactNode }) {
+  return useIsPrivileged() ? <>{children}</> : null;
+}

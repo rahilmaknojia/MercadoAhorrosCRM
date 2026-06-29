@@ -5,6 +5,15 @@ export type Permissions = {
   permissions: string[];
 };
 
+// An entry on the auth service's invitation allowlist. Account creation
+// (Microsoft sign-in or email sign-up) is permitted only for invited emails.
+export type InvitedEmail = {
+  id: string;
+  email: string;
+  invitedBy?: string | null;
+  createdAt: string;
+};
+
 export type CustomerStatus = "Active" | "Pending" | "Inactive";
 
 export type Customer = {
