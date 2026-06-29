@@ -26,7 +26,7 @@ function RequestReset() {
     // Fire-and-forget; we always show the same neutral message to avoid revealing
     // which emails have accounts.
     await authClient
-      .requestPasswordReset({ email, redirectTo: "/reset" })
+      .requestPasswordReset({ email, redirectTo: `${window.location.origin}/reset` })
       .catch(() => undefined);
     setLoading(false);
     setSent(true);
