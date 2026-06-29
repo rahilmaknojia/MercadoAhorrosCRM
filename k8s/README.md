@@ -15,13 +15,48 @@ Manifests for the Next.js CRM (BFF). Mirrors the API's `k8s/` layout.
 > **build time**, so they must be passed as `--build-arg` (not only at runtime).
 > Use the same value in `config.yaml` for the server-side reads.
 
-```bash
-REG=registry.digitalocean.com/edi
-docker build \
-  --build-arg NEXT_PUBLIC_AUTH_SERVICE_URL=https://auth.mercadoahorros.net \
-  --build-arg NEXT_PUBLIC_AUTH_BASE_PATH=/api/auth \
-  -t $REG/mercado-crm:1.0.0 .
-docker push $REG/mercado-crm:1.0.0
+## Local Docker build and push to registry
+```powershell
+# Variables (edit these)
+$Registry = "registry.digitalocean.com/edi"
+$Image    = "mercado-crm"
+$Version  = "1.0.2"          # or: (Get-Date -Format "yyyy.MM.dd.HHmm")
+$Tag      =  $Registry + "/" + $Image + ":" + $Version
+
+# Build with BuildKit enabled
+$env:DOCKER_BUILDKIT = "1"
+docker build `
+--build-arg NEXT_PUBLIC_AUTH_SERVICE_URL=https://auth.dev.mercadoahorros.net `
+--build-arg NEXT_PUBLIC_AUTH_BASE_PATH=/api/auth `
+-f Dockerfile -t $Tag .
+
+# Push both tags
+docker push $Tag
+
+# (Optional) output digest for pinning in deployment
+(docker inspect --format='{{index .RepoDigests 0}}' $Tag)
+```
+
+PROD
+```powershell
+# Variables (edit these)
+$Registry = "registry.digitalocean.com/edi"
+$Image    = "mercado-crm"
+$Version  = "1.0.2"          # or: (Get-Date -Format "yyyy.MM.dd.HHmm")
+$Tag      =  $Registry + "/" + $Image + ":prod-" + $Version
+
+# Build with BuildKit enabled
+$env:DOCKER_BUILDKIT = "1"
+docker build `
+--build-arg NEXT_PUBLIC_AUTH_SERVICE_URL=https://auth.dev.mercadoahorros.net `
+--build-arg NEXT_PUBLIC_AUTH_BASE_PATH=/api/auth `
+-f Dockerfile -t $Tag .
+
+# Push both tags
+docker push $Tag
+
+# (Optional) output digest for pinning in deployment
+(docker inspect --format='{{index .RepoDigests 0}}' $Tag)
 ```
 
 ## Deploy
