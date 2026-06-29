@@ -48,7 +48,10 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </span>
           <h2 className="text-4xl font-semibold leading-[1.1] tracking-tight text-balance xl:text-5xl">
             Everything for your{" "}
-            <span className="text-brand-yellow">member stores</span>.
+            <span className="bg-linear-to-r from-brand-yellow to-brand bg-clip-text text-transparent">
+              member stores
+            </span>
+            .
           </h2>
           <p className="max-w-md text-sm leading-relaxed text-zinc-400">
             Customers, vendors, reports, and team access — secured and audited, all in one place.
