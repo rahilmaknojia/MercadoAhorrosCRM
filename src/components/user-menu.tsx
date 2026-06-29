@@ -8,6 +8,7 @@ import { buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -44,15 +45,17 @@ export function UserMenu({
         <span className="hidden text-sm sm:inline">{name || email}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="flex flex-col gap-1">
-          <span className="truncate">{name || "User"}</span>
-          <span className="truncate text-xs font-normal text-muted-foreground">{email}</span>
-          {role && (
-            <Badge variant="secondary" className="mt-1 w-fit capitalize">
-              {role}
-            </Badge>
-          )}
-        </DropdownMenuLabel>
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="flex flex-col gap-1">
+            <span className="truncate">{name || "User"}</span>
+            <span className="truncate text-xs font-normal text-muted-foreground">{email}</span>
+            {role && (
+              <Badge variant="secondary" className="mt-1 w-fit capitalize">
+                {role}
+              </Badge>
+            )}
+          </DropdownMenuLabel>
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={logout}>
           <LogOut />

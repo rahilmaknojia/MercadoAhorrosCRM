@@ -3,30 +3,28 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { useIsPrivileged } from "@/components/permissions-provider";
 
-const baseLinks = [
-  { href: "/", label: "Dashboard" },
+const links = [
   { href: "/customers", label: "Customers" },
+  { href: "/reports", label: "Reports" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function MainNav() {
   const pathname = usePathname();
-  const privileged = useIsPrivileged();
-  const links = privileged
-    ? [...baseLinks, { href: "/invitations", label: "Invitations" }]
-    : baseLinks;
   return (
     <nav className="flex items-center gap-1">
       {links.map((link) => {
-        const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
+        const active = pathname.startsWith(link.href);
         return (
           <Link
             key={link.href}
             href={link.href}
             className={cn(
               "rounded-md px-3 py-2 text-sm font-medium transition-colors",
-              active ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+              active
+                ? "bg-white/10 text-white"
+                : "text-zinc-400 hover:bg-white/5 hover:text-white"
             )}
           >
             {link.label}

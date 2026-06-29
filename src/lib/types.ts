@@ -14,6 +14,20 @@ export type InvitedEmail = {
   createdAt: string;
 };
 
+// A user account as returned by the auth service admin list-users endpoint.
+export type AdminUser = {
+  id: string;
+  name: string;
+  email: string;
+  role?: string | null;
+  banned?: boolean | null;
+  banReason?: string | null;
+  createdAt: string;
+};
+
+export const APP_ROLES = ["owner", "admin", "staff", "user"] as const;
+export type AppRole = (typeof APP_ROLES)[number];
+
 export type CustomerStatus = "Active" | "Pending" | "Inactive";
 
 export type Customer = {
