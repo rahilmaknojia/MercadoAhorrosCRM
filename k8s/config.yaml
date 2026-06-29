@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mercado-crm-config
+  namespace: default
+data:
+  NODE_ENV: "production"
+  # Next.js standalone server reads these.
+  PORT: "8102"
+  HOSTNAME: "0.0.0.0"
+  # NEXT_PUBLIC_* are ALSO inlined into the browser bundle at image build time
+  # (see Dockerfile --build-arg). Keep these values in sync with the build args;
+  # the value here is what the server reads at runtime (getSession / getJwt).
+  NEXT_PUBLIC_AUTH_SERVICE_URL: "https://auth.mercadoahorros.net"
+  NEXT_PUBLIC_AUTH_BASE_PATH: "/api/auth"
+  # Server-only. The BFF proxies every API call from the server and attaches the
+  # Bearer JWT; the browser never calls the API directly. In-cluster Service DNS.
+  API_BASE_URL: "http://svc-mercadoapi.default.svc.cluster.local:8080"

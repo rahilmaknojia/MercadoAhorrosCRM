@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mercado-crm
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mercado-crm
+  template:
+    metadata:
+      labels:
+        app: mercado-crm
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000     # the built-in `node` user from the image
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: mercado-crm
+          image: registry.digitalocean.com/edi/mercado-crm:1.0.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8102
+          envFrom:
+            - configMapRef:
+                name: mercado-crm-config
+            - secretRef:
+                name: mercado-crm-secret
+                optional: true
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: 8102
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: 8102
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
