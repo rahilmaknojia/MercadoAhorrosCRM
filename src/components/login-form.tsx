@@ -8,6 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Mail } from "lucide-react";
 
+const GENERIC_ERROR =
+  "We couldn't sign you in right now. Please try again, or contact support if the problem continues.";
+
 function MicrosoftIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 23 23" aria-hidden className="shrink-0">
@@ -29,28 +32,42 @@ export function LoginForm() {
   async function signInMicrosoft() {
     setError(null);
     setLoading("ms");
-    const { error } = await authClient.signIn.social({
-      provider: "microsoft",
-      callbackURL: `${window.location.origin}/`,
-    });
-    if (error) {
-      setError(error.message ?? "Microsoft sign-in failed.");
+    try {
+      const { error } = await authClient.signIn.social({
+        provider: "microsoft",
+        callbackURL: `${window.location.origin}/`,
+      });
+      // On success Better Auth redirects the browser to Microsoft (loading stays
+      // on through the navigation). Any error here is a config/network failure the
+      // user can't act on, so show a generic message and reset the button.
+      if (error) {
+        setError(GENERIC_ERROR);
+        setLoading(null);
+      }
+    } catch {
+      // A thrown error (e.g. the request never reaches the auth service) does not
+      // reject as { error } — catch it so the button never gets stuck spinning.
+      setError(GENERIC_ERROR);
       setLoading(null);
     }
-    // On success Better Auth redirects the browser to Microsoft.
   }
 
   async function signInEmail(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading("email");
-    const { error } = await authClient.signIn.email({ email, password });
-    if (error) {
-      setError(error.message ?? "Invalid email or password.");
+    try {
+      const { error } = await authClient.signIn.email({ email, password });
+      if (error) {
+        setError(error.message ?? "Invalid email or password.");
+        setLoading(null);
+        return;
+      }
+      window.location.href = "/";
+    } catch {
+      setError(GENERIC_ERROR);
       setLoading(null);
-      return;
     }
-    window.location.href = "/";
   }
 
   return (

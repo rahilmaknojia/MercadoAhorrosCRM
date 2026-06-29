@@ -6,6 +6,9 @@ import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { Loader2, MailCheck } from "lucide-react";
 
+const GENERIC_ERROR =
+  "We couldn't sign you in right now. Please try again, or contact support if the problem continues.";
+
 function MicrosoftIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 23 23" aria-hidden className="shrink-0">
@@ -24,12 +27,20 @@ export function SignUpNotice() {
   async function continueWithMicrosoft() {
     setError(null);
     setLoading(true);
-    const { error } = await authClient.signIn.social({
-      provider: "microsoft",
-      callbackURL: `${window.location.origin}/`,
-    });
-    if (error) {
-      setError(error.message ?? "Microsoft sign-in failed.");
+    try {
+      const { error } = await authClient.signIn.social({
+        provider: "microsoft",
+        callbackURL: `${window.location.origin}/`,
+      });
+      // On success the browser redirects to Microsoft. Otherwise reset the button.
+      if (error) {
+        setError(GENERIC_ERROR);
+        setLoading(false);
+      }
+    } catch {
+      // A thrown error (request never reaches the auth service) isn't returned as
+      // { error }; catch it so the button never gets stuck spinning.
+      setError(GENERIC_ERROR);
       setLoading(false);
     }
   }
