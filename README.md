@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MercadoAhorrosCRM
 
-## Getting Started
+Office-staff web CRM for Mercado Ahorros. Next.js (App Router) + TypeScript + Tailwind +
+shadcn/ui. Authenticates against the Better Auth service and consumes the .NET API.
 
-First, run the development server:
+## Architecture (BFF)
+
+The browser only ever talks to this app. This app's **server** holds the session and talks
+to the backend, so the API JWT never reaches the browser:
+
+- **Sign-in** happens in the browser against the auth service: **Microsoft** (primary, for
+  staff) or **email + password** (the Owner local account, behind a link). Better Auth sets
+  its session cookie, shared with this app (same host in dev; shared parent domain in prod).
+- **Data access** is server-side only. For each request the server reads the incoming
+  session cookie, mints a short-lived ES256 JWT from the auth service (`/api/auth/token`),
+  and calls the .NET API with `Authorization: Bearer …` (`src/lib/server/*`).
+- **Route protection**: `src/proxy.ts` redirects unauthenticated requests to `/login`; the
+  authenticated layout (`src/app/(app)/layout.tsx`) validates the session server-side and
+  loads `/api/me/permissions` for UI gating (`Can`, `usePermissions`). The API still
+  enforces every permission.
+
+## Auth policy
+
+- **Invitation-only.** This UI offers no open sign-up. Enforcing it (rejecting un-invited
+  Microsoft sign-ins, disabling public email sign-up) is an **auth-service** change. Staff
+  use Microsoft; the Owner is a local account.
+
+## Run (dev)
+
+Requires the auth service + .NET API reachable (e.g. the API repo's `integration/` docker
+stack: auth on `:8088`, API on `:8080`).
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local   # adjust URLs if needed
+pnpm install
+pnpm dev                     # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Structure
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `src/lib/server/auth.ts` — session + JWT via cookie forwarding (server only).
+- `src/lib/server/api.ts` — BFF fetch (attaches the Bearer JWT; memoized per request).
+- `src/lib/auth-client.ts` — browser Better Auth client (sign-in / sign-out only).
+- `src/app/login/` — Microsoft-primary login; owner email/password behind a link.
+- `src/app/(app)/` — authenticated shell, dashboard, customers list + create.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+> Note: this project targets a recent Next.js with breaking changes (see `AGENTS.md`):
+> the request-interception file is `proxy.ts` (not `middleware.ts`), UI primitives are
+> Base UI (use `render`/`buttonVariants`, not `asChild`), and `headers()`/`searchParams`
+> are async.
