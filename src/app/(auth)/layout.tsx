@@ -13,7 +13,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           width={1027}
           height={562}
           priority
-          className="h-12 w-auto"
+          className="h-12 w-auto self-start"
         />
         <div className="space-y-3">
           <p className="text-2xl font-medium leading-snug text-balance">
