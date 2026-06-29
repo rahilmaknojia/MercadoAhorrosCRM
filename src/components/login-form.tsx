@@ -61,7 +61,7 @@ export function LoginForm() {
           Access is invitation-only.{" "}
           <Link
             href="/sign-up"
-            className="font-medium text-foreground underline-offset-4 hover:underline"
+            className="font-medium text-brand underline-offset-4 hover:underline"
           >
             Need access?
           </Link>
@@ -133,7 +133,11 @@ export function LoginForm() {
                 required
               />
             </div>
-            <Button type="submit" className="h-11 w-full" disabled={loading !== null}>
+            <Button
+              type="submit"
+              className="h-11 w-full bg-brand text-brand-foreground hover:bg-brand/90"
+              disabled={loading !== null}
+            >
               {loading === "email" && <Loader2 className="animate-spin" />}
               Sign in
             </Button>

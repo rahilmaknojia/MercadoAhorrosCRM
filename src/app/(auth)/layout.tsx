@@ -22,10 +22,14 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             maskImage: "radial-gradient(ellipse at 30% 20%, black, transparent 75%)",
           }}
         />
-        {/* Accent glow */}
+        {/* Brand accent glows (red + yellow) */}
         <div
           aria-hidden
-          className="pointer-events-none absolute -left-24 -top-32 h-96 w-96 rounded-full bg-emerald-500/15 blur-3xl"
+          className="pointer-events-none absolute -left-24 -top-32 h-96 w-96 rounded-full bg-brand/20 blur-3xl"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-32 -right-24 h-80 w-80 rounded-full bg-brand-yellow/10 blur-3xl"
         />
 
         <Image
@@ -39,12 +43,12 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
         <div className="relative space-y-5">
           <span className="inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-1 text-xs font-medium tracking-wide text-zinc-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <span className="h-1.5 w-1.5 rounded-full bg-brand" />
             MERCADO AHORROS CRM
           </span>
           <h2 className="text-4xl font-semibold leading-[1.1] tracking-tight text-balance xl:text-5xl">
             Everything for your{" "}
-            <span className="text-emerald-400">member stores</span>.
+            <span className="text-brand-yellow">member stores</span>.
           </h2>
           <p className="max-w-md text-sm leading-relaxed text-zinc-400">
             Customers, vendors, reports, and team access — secured and audited, all in one place.
@@ -54,7 +58,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <div className="relative flex flex-wrap gap-x-5 gap-y-2 text-[11px] font-medium uppercase tracking-wider text-zinc-500">
           {FEATURES.map((f) => (
             <span key={f} className="flex items-center gap-1.5">
-              <Check className="h-3.5 w-3.5 text-emerald-400" />
+              <Check className="h-3.5 w-3.5 text-brand" />
               {f}
             </span>
           ))}

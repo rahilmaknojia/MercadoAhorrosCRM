@@ -73,7 +73,11 @@ function RequestReset() {
             required
           />
         </div>
-        <Button type="submit" className="h-10 w-full" disabled={loading}>
+        <Button
+          type="submit"
+          className="h-10 w-full bg-brand text-brand-foreground hover:bg-brand/90"
+          disabled={loading}
+        >
           {loading && <Loader2 className="animate-spin" />}
           Send reset link
         </Button>
@@ -144,7 +148,11 @@ function SetNewPassword({ token, onDone }: { token: string; onDone: () => void }
           />
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
-        <Button type="submit" className="h-10 w-full" disabled={loading}>
+        <Button
+          type="submit"
+          className="h-10 w-full bg-brand text-brand-foreground hover:bg-brand/90"
+          disabled={loading}
+        >
           {loading && <Loader2 className="animate-spin" />}
           Update password
         </Button>
