@@ -122,9 +122,17 @@ export default async function CustomersPage({
                 </TableRow>
               ) : (
                 customers.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell className="font-medium">{c.memberId}</TableCell>
-                    <TableCell>{c.businessName ?? "—"}</TableCell>
+                  <TableRow key={c.id} className="hover:bg-muted/50">
+                    <TableCell className="font-medium">
+                      <Link href={`/customers/${c.id}`} className="hover:underline">
+                        {c.memberId}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Link href={`/customers/${c.id}`} className="hover:underline">
+                        {c.businessName ?? "—"}
+                      </Link>
+                    </TableCell>
                     <TableCell>{c.contactName}</TableCell>
                     <TableCell>
                       {[c.storeCity, c.storeState].filter(Boolean).join(", ") || "—"}

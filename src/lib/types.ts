@@ -34,18 +34,60 @@ export type Customer = {
   id: number;
   memberId: string;
   contactName: string;
+  personTitle?: string | null;
   businessName?: string | null;
   corpName?: string | null;
-  email?: string | null;
+  salesTaxId?: string | null;
+  federalTaxId?: string | null;
   storePhone?: string | null;
+  storeFax?: string | null;
   cellPhone?: string | null;
+  email?: string | null;
   storeAddress?: string | null;
   storeCity?: string | null;
   storeState?: string | null;
   storeZipcode?: string | null;
+  district?: string | null;
+  region?: string | null;
+  mailingAddress?: string | null;
+  mailingCity?: string | null;
+  mailingState?: string | null;
+  mailingZipcode?: string | null;
+  storeGroup?: string | null;
   status: CustomerStatus;
   dateJoined: string;
+  dateInactive?: string | null;
+  inactiveReason?: string | null;
+  reinstated?: string | null;
+  zoneNo?: string | null;
   zoneManager?: string | null;
+  signedBy?: string | null;
+  comments?: string | null;
+  createdOn?: string | null;
+  createdBy?: string | null;
+  modifiedOn?: string | null;
+  modifiedBy?: string | null;
+};
+
+// A customer activity/log entry (CustomerLog).
+export type CustomerLog = {
+  id: number;
+  customerId: number;
+  message: string;
+  createdOn: string;
+  createdBy: string;
+  modifiedOn?: string | null;
+  modifiedBy?: string | null;
+};
+
+// Equipment/footprint metadata stored as JSON alongside a customer (StoreMetadata).
+export type StoreMetadata = {
+  id: number;
+  customerId: number;
+  jsonData: string;
+  createdOn: string;
+  createdBy: string;
+  modifiedBy?: string | null;
 };
 
 // The .NET API returns the items as a JSON array and pagination metadata in the
