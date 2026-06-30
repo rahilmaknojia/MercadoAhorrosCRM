@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { headers } from "next/headers";
 import { getSession } from "@/lib/server/auth";
 import { authApiFetch } from "@/lib/server/auth-api";
@@ -11,12 +12,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { InvitationForm } from "@/components/invitation-form";
 import { UserRowActions } from "@/components/user-row-actions";
 import { revokeInvitation } from "./actions";
-import { Trash2 } from "lucide-react";
+import { MapPin, Trash2 } from "lucide-react";
 
 const PRIVILEGED = new Set(["owner", "admin"]);
 function rolesOf(role: string | null | undefined): string[] {
@@ -141,11 +142,22 @@ export default async function UsersPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <UserRowActions
-                          user={u}
-                          viewerIsOwner={viewerIsOwner}
-                          viewerUserId={viewer?.id ?? null}
-                        />
+                        <div className="flex items-center justify-end gap-1">
+                          {/* Territory scoping only applies to non-privileged users. */}
+                          {!isPrivileged(u.role) && (
+                            <Link
+                              href={`/settings/users/${u.id}/territory?email=${encodeURIComponent(u.email)}`}
+                              className={buttonVariants({ variant: "ghost", size: "sm" })}
+                            >
+                              <MapPin /> Territory
+                            </Link>
+                          )}
+                          <UserRowActions
+                            user={u}
+                            viewerIsOwner={viewerIsOwner}
+                            viewerUserId={viewer?.id ?? null}
+                          />
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
