@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useCan } from "@/components/permissions-provider";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   ChevronLeft,
   ChevronRight,
@@ -74,6 +75,20 @@ function fileNameOf(key: string): string {
   return key.split("/").pop() ?? key;
 }
 
+// Make a user-typed folder name safe to use as a single path segment.
+function sanitizeFolder(s: string): string {
+  return s
+    .trim()
+    .replace(/[\\/]+/g, "-") // no nested segments from a single name
+    .replace(/\s+/g, " ")
+    .replace(/[^\w\- ]/g, "")
+    .trim();
+}
+
+const NEW_FOLDER = "__new__";
+const selectClass =
+  "h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
+
 // Run async tasks with bounded concurrency (avoids storming the BFF/worker with
 // dozens of simultaneous presign requests).
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -98,6 +113,8 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [selected, setSelected] = useState<string>(""); // chosen folder; "" → auto-pick
+  const [uploadFolder, setUploadFolder] = useState<string>(""); // "" → follow active folder
+  const [newFolderName, setNewFolderName] = useState("");
   const [lightbox, setLightbox] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -149,6 +166,10 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
   );
   const activeFolder = selected || firstWithPhotos || folders[0]?.key || "";
   const visibleKeys = useMemo(() => grouped[activeFolder] ?? [], [grouped, activeFolder]);
+
+  // Upload target: an existing folder, or a new custom folder name the user types.
+  const customFolder = sanitizeFolder(newFolderName);
+  const targetFolder = uploadFolder === NEW_FOLDER ? customFolder : uploadFolder || activeFolder;
 
   // Resolve presigned URLs lazily for whatever folder is in view.
   const visibleKey = visibleKeys.join("|");
@@ -242,8 +263,12 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
 
   async function onFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
-    const folder = activeFolder;
-    if (!folder) return;
+    const folder = targetFolder;
+    if (!folder) {
+      toast.error("Pick a folder or enter a new folder name.");
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
     setUploading(true);
     let ok = 0;
     for (const file of Array.from(files)) {
@@ -257,8 +282,10 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     setUploading(false);
     if (inputRef.current) inputRef.current.value = "";
     if (ok > 0) {
-      toast.success(`Uploaded ${ok} photo${ok > 1 ? "s" : ""} to ${folderLabel(folder)}.`);
-      setSelected(folder); // jump to the folder we just filled
+      toast.success(`Uploaded ${ok} photo${ok > 1 ? "s" : ""} to ${folder}.`);
+      setSelected(folder); // jump to the folder we just filled (new folders appear here)
+      setUploadFolder("");
+      setNewFolderName("");
       void loadIndex();
     }
   }
@@ -289,10 +316,31 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
           <Images className="size-5" /> Photos
         </h2>
         {canUpload && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">
-              Upload to <span className="font-medium text-foreground">{selectedLabel}</span>
-            </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">Upload to</span>
+            <select
+              value={uploadFolder || activeFolder}
+              onChange={(e) => setUploadFolder(e.target.value)}
+              disabled={uploading}
+              aria-label="Upload to folder"
+              className={selectClass}
+            >
+              {folders.map((f) => (
+                <option key={f.key} value={f.key}>
+                  {f.label}
+                </option>
+              ))}
+              <option value={NEW_FOLDER}>+ New folder…</option>
+            </select>
+            {uploadFolder === NEW_FOLDER && (
+              <Input
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder="New folder name"
+                disabled={uploading}
+                className="h-9 w-44"
+              />
+            )}
             <input
               ref={inputRef}
               type="file"
@@ -301,7 +349,10 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
               hidden
               onChange={(e) => onFiles(e.target.files)}
             />
-            <Button onClick={() => inputRef.current?.click()} disabled={uploading}>
+            <Button
+              onClick={() => inputRef.current?.click()}
+              disabled={uploading || (uploadFolder === NEW_FOLDER && !customFolder)}
+            >
               {uploading ? <Loader2 className="animate-spin" /> : <Upload />}
               Upload
             </Button>
