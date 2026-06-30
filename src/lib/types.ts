@@ -90,6 +90,37 @@ export type StoreMetadata = {
   modifiedBy?: string | null;
 };
 
+// --- Reporting ---
+export type ReportVisualization = "table" | "bar" | "pie" | "metric";
+
+export type ReportFilterRow = { field: string; operator: string; value: string };
+
+// The report definition is stored inside ReportPreset.queryParameters (JSON).
+export type ReportDefinition = {
+  source?: string; // "customers"
+  filters?: string[]; // "field|operator|value"
+  metadataFilters?: string[];
+  columns?: string[];
+  sortField?: string;
+  ascending?: boolean;
+  visualization?: ReportVisualization;
+  groupBy?: string;
+  aggregate?: string; // "count"
+  pinnedToDashboard?: boolean;
+};
+
+export type ReportPreset = {
+  id: number;
+  name: string;
+  description?: string | null;
+  queryParameters: ReportDefinition;
+  createdOn: string;
+  createdBy: string;
+  modifiedOn?: string | null;
+};
+
+export type AggregateBucket = { key: string; count: number };
+
 // The .NET API returns the items as a JSON array and pagination metadata in the
 // X-Pagination response header.
 export type PageInfo = {
