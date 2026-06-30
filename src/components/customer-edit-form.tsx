@@ -9,43 +9,61 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 
+const selectClass =
+  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
+
 function Field({
   name,
   label,
   defaultValue,
   type = "text",
   required = false,
-  suggestions,
 }: {
   name: string;
   label: string;
   defaultValue?: string | null;
   type?: string;
   required?: boolean;
-  suggestions?: string[];
 }) {
-  const listId = suggestions?.length ? `${name}-list` : undefined;
   return (
     <div className="space-y-1">
       <Label htmlFor={name}>
         {label}
         {required && <span className="text-destructive"> *</span>}
       </Label>
-      <Input
-        id={name}
-        name={name}
-        type={type}
-        defaultValue={defaultValue ?? ""}
-        required={required}
-        list={listId}
-      />
-      {listId && (
-        <datalist id={listId}>
-          {suggestions!.map((s) => (
-            <option key={s} value={s} />
-          ))}
-        </datalist>
-      )}
+      <Input id={name} name={name} type={type} defaultValue={defaultValue ?? ""} required={required} />
+    </div>
+  );
+}
+
+// A managed-value dropdown. Includes the current value even if it's no longer an
+// active option, plus a blank to clear. Submits the value string (the API links it
+// to the matching master-data lookup).
+function SelectField({
+  name,
+  label,
+  defaultValue,
+  options,
+}: {
+  name: string;
+  label: string;
+  defaultValue?: string | null;
+  options?: string[];
+}) {
+  const list = options ?? [];
+  const current = defaultValue ?? "";
+  const opts = current && !list.includes(current) ? [current, ...list] : list;
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={name}>{label}</Label>
+      <select id={name} name={name} defaultValue={current} className={selectClass}>
+        <option value="">—</option>
+        {opts.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -105,11 +123,11 @@ export function CustomerEditForm({
       </Section>
 
       <Section title="Territory">
-        <Field name="region" label="Region" defaultValue={customer.region} suggestions={s.region} />
-        <Field name="district" label="District" defaultValue={customer.district} suggestions={s.district} />
-        <Field name="zoneNo" label="Zone no." defaultValue={customer.zoneNo} suggestions={s.zoneNo} />
-        <Field name="zoneManager" label="Zone manager" defaultValue={customer.zoneManager} suggestions={s.zoneManager} />
-        <Field name="storeGroup" label="Store group" defaultValue={customer.storeGroup} suggestions={s.storeGroup} />
+        <SelectField name="region" label="Region" defaultValue={customer.region} options={s.region} />
+        <SelectField name="district" label="District" defaultValue={customer.district} options={s.district} />
+        <SelectField name="zoneNo" label="Zone no." defaultValue={customer.zoneNo} options={s.zoneNo} />
+        <SelectField name="zoneManager" label="Zone manager" defaultValue={customer.zoneManager} options={s.zoneManager} />
+        <SelectField name="storeGroup" label="Store group" defaultValue={customer.storeGroup} options={s.storeGroup} />
       </Section>
 
       <Section title="Status &amp; identifiers">
