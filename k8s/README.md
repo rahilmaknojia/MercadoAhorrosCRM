@@ -44,7 +44,7 @@ so SES is optional for the CRM to run.
 # Variables (edit these)
 $Registry = "registry.digitalocean.com/edi"
 $Image    = "mercado-crm"
-$Version  = "1.0.4"          # or: (Get-Date -Format "yyyy.MM.dd.HHmm")
+$Version  = "1.0.11"          # or: (Get-Date -Format "yyyy.MM.dd.HHmm")
 $Tag      =  $Registry + "/" + $Image + ":" + $Version
 
 # Build with BuildKit enabled
@@ -53,6 +53,7 @@ docker build `
 --build-arg NEXT_PUBLIC_AUTH_SERVICE_URL=https://auth.dev.mercadoahorros.net `
 --build-arg NEXT_PUBLIC_CRM_URL=https://crm.dev.mercadoahorros.net `
 --build-arg NEXT_PUBLIC_AUTH_BASE_PATH=/api/auth `
+--build-arg NEXT_PUBLIC_BUILD_SHA=$(git rev-parse --short HEAD) `
 -f Dockerfile -t $Tag .
 
 # Push both tags
@@ -76,6 +77,7 @@ docker build `
 --build-arg NEXT_PUBLIC_AUTH_SERVICE_URL=https://auth.mercadoahorros.net `
 --build-arg NEXT_PUBLIC_CRM_URL=https://crm.mercadoahorros.net `
 --build-arg NEXT_PUBLIC_AUTH_BASE_PATH=/api/auth `
+--build-arg NEXT_PUBLIC_BUILD_SHA=$(git rev-parse --short HEAD) `
 -f Dockerfile -t $Tag .
 
 # Push both tags

@@ -47,6 +47,10 @@ const LEGACY_FOLDERS: { key: string; label: string }[] = [
 ];
 
 const NEW_FOLDER = "__new__";
+// Bump this whenever the gallery logic changes; it's shown next to the Photos heading
+// so we can tell at a glance which build is actually deployed. "merge" = the build that
+// collapses an original with its size renditions into one tile.
+const GALLERY_BUILD = "g7-merge";
 const selectClass =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
@@ -592,6 +596,12 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-lg font-semibold">
           <Images className="size-5" /> Photos
+          <span
+            className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground"
+            title="Gallery build — confirms which CRM image is deployed"
+          >
+            {GALLERY_BUILD}
+          </span>
         </h2>
         {canUpload && (
           <div className="flex flex-wrap items-center gap-2">

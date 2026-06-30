@@ -53,6 +53,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
         </header>
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
+        <footer className="border-t py-3 text-center text-xs text-muted-foreground">
+          Mercado Ahorros CRM · build {process.env.NEXT_PUBLIC_BUILD_SHA || "dev"}
+        </footer>
       </div>
       <Toaster />
     </PermissionsProvider>

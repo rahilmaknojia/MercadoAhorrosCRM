@@ -21,8 +21,14 @@ COPY . .
 # should also be set at runtime (k8s ConfigMap) for the server-side reads.
 ARG NEXT_PUBLIC_AUTH_SERVICE_URL
 ARG NEXT_PUBLIC_AUTH_BASE_PATH=/api/auth
+ARG NEXT_PUBLIC_CRM_URL
+# Build/commit identity shown in the app footer so you can tell which image is live.
+# Pass --build-arg NEXT_PUBLIC_BUILD_SHA=$(git rev-parse --short HEAD).
+ARG NEXT_PUBLIC_BUILD_SHA=dev
 ENV NEXT_PUBLIC_AUTH_SERVICE_URL=$NEXT_PUBLIC_AUTH_SERVICE_URL
 ENV NEXT_PUBLIC_AUTH_BASE_PATH=$NEXT_PUBLIC_AUTH_BASE_PATH
+ENV NEXT_PUBLIC_CRM_URL=$NEXT_PUBLIC_CRM_URL
+ENV NEXT_PUBLIC_BUILD_SHA=$NEXT_PUBLIC_BUILD_SHA
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm run build
