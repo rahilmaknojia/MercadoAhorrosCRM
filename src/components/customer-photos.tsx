@@ -3,15 +3,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useCan } from "@/components/permissions-provider";
+import { prepareImage } from "@/lib/image-prep";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Camera,
   ChevronLeft,
   ChevronRight,
+  Download,
+  ExternalLink,
   Folder,
   Images,
   Loader2,
   Maximize2,
+  RotateCw,
   Trash2,
   Upload,
   X,
@@ -137,10 +142,12 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [view, setView] = useState<string>("1024"); // "256" | "512" | "1024" | "original"
   const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
 
   const loadIndex = useCallback(async () => {
     try {
@@ -305,7 +312,24 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    setRotation(0);
   }, [currentKey]);
+
+  async function downloadCurrent() {
+    if (!currentKey || !urls[currentKey] || !current) return;
+    try {
+      const res = await fetch(urls[currentKey]);
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = current.name;
+      a.click();
+      URL.revokeObjectURL(href);
+    } catch {
+      toast.error("Download failed.");
+    }
+  }
 
   function defaultViewFor(p?: Photo): string {
     const sizes = p ? Object.keys(p.renditions).map(Number) : [];
@@ -394,7 +418,9 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     let ok = 0;
     for (const file of Array.from(files)) {
       try {
-        await uploadOne(file, folder);
+        // Auto-orient / downscale / HEIC->JPEG before upload (best-effort).
+        const prepared = await prepareImage(file);
+        await uploadOne(prepared, folder);
         ok++;
       } catch {
         toast.error(`Upload failed: ${file.name}`);
@@ -471,6 +497,23 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
               hidden
               onChange={(e) => onFiles(e.target.files)}
             />
+            {/* On phones/tablets this opens the camera; on desktop it's a file picker. */}
+            <input
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              hidden
+              onChange={(e) => onFiles(e.target.files)}
+            />
+            <Button
+              variant="outline"
+              onClick={() => cameraRef.current?.click()}
+              disabled={uploading || (uploadFolder === NEW_FOLDER && !customFolder)}
+              aria-label="Take photo"
+            >
+              <Camera /> Camera
+            </Button>
             <Button
               onClick={() => inputRef.current?.click()}
               disabled={uploading || (uploadFolder === NEW_FOLDER && !customFolder)}
@@ -609,6 +652,30 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
               >
                 <ZoomIn className="size-4" />
               </button>
+              <button
+                type="button"
+                aria-label="Rotate"
+                className="rounded-md bg-white/10 p-2 hover:bg-white/20"
+                onClick={() => setRotation((r) => (r + 90) % 360)}
+              >
+                <RotateCw className="size-4" />
+              </button>
+              <button
+                type="button"
+                aria-label="Download"
+                className="rounded-md bg-white/10 p-2 hover:bg-white/20"
+                onClick={() => void downloadCurrent()}
+              >
+                <Download className="size-4" />
+              </button>
+              <button
+                type="button"
+                aria-label="Open in new tab"
+                className="rounded-md bg-white/10 p-2 hover:bg-white/20"
+                onClick={() => currentKey && urls[currentKey] && window.open(urls[currentKey], "_blank", "noopener")}
+              >
+                <ExternalLink className="size-4" />
+              </button>
               {canDelete && (
                 <button
                   type="button"
@@ -675,7 +742,7 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
                 draggable={false}
                 className="max-h-full max-w-full select-none object-contain"
                 style={{
-                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)`,
                   transition: dragging ? "none" : "transform 0.1s ease-out",
                 }}
               />
