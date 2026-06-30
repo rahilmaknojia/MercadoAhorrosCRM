@@ -11,13 +11,19 @@ import {
   Folder,
   Images,
   Loader2,
+  Maximize2,
   Trash2,
   Upload,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB parts
 const IMAGE_RE = /\.(jpe?g|png|gif|webp)$/i;
+// NFImageWorker stores size renditions as {originalKey}/w{width}.webp alongside the
+// original. This matches a rendition filename and captures its width.
+const RENDITION_RE = /^w(\d+)\.(webp|jpe?g|png|gif)$/i;
 
 // Folders mirror the legacy Sunbelt app's categories (exact keys, so legacy-migrated
 // photos under {memberId}/{folder}/ line up). Display labels are friendlier.
@@ -30,7 +36,19 @@ const LEGACY_FOLDERS: { key: string; label: string }[] = [
   { key: "Other", label: "Other" },
 ];
 
-// Tolerate PascalCase/camelCase and raw-string responses from the file worker.
+const NEW_FOLDER = "__new__";
+const selectClass =
+  "h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
+
+// A source photo: one original plus its size renditions (collapsed from many keys).
+type Photo = {
+  source: string; // identity (original key, == rendition parent path)
+  folder: string;
+  name: string; // display filename
+  original?: string; // original object key, if present in the listing
+  renditions: Record<number, string>; // width -> object key
+};
+
 function pick(obj: unknown, ...keys: string[]): string | undefined {
   if (typeof obj === "string") return obj;
   if (obj && typeof obj === "object") {
@@ -60,10 +78,16 @@ function friendlyName(original: string): string {
   return `${date}_${time}-${rand}-${safe}`;
 }
 
-// Object keys may carry a storage prefix before the member code (e.g.
-// "storage/dev/MA102/ColdVault/file.jpg"), so anchor on the member code like the
-// legacy explorer did (indexOf(memberCode + "/")). The folder is the first segment
-// after the member code; a file directly under the member buckets into "Other".
+function fileNameOf(key: string): string {
+  return key.split("/").pop() ?? key;
+}
+
+// Folder identity is case-insensitive (merge "storefront" / "Storefront").
+function norm(s: string): string {
+  return s.trim().toLowerCase();
+}
+
+// Anchor on the member code (keys carry a storage prefix, e.g. storage/dev/MA102/...).
 function folderOf(key: string, memberId: string): string {
   const marker = `${memberId}/`;
   const idx = key.indexOf(marker);
@@ -71,26 +95,16 @@ function folderOf(key: string, memberId: string): string {
   const segs = rel.split("/").filter(Boolean);
   return segs.length > 1 ? segs[0] : "Other";
 }
-function fileNameOf(key: string): string {
-  return key.split("/").pop() ?? key;
-}
 
-// Make a user-typed folder name safe to use as a single path segment.
 function sanitizeFolder(s: string): string {
   return s
     .trim()
-    .replace(/[\\/]+/g, "-") // no nested segments from a single name
+    .replace(/[\\/]+/g, "-")
     .replace(/\s+/g, " ")
     .replace(/[^\w\- ]/g, "")
     .trim();
 }
 
-const NEW_FOLDER = "__new__";
-const selectClass =
-  "h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
-
-// Run async tasks with bounded concurrency (avoids storming the BFF/worker with
-// dozens of simultaneous presign requests).
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out = new Array<R>(items.length);
   let cursor = 0;
@@ -104,21 +118,30 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
+// The rendition we show as a grid thumbnail (small first) / default lightbox size.
+function thumbKey(p: Photo): string {
+  return p.renditions[256] ?? p.renditions[512] ?? p.renditions[1024] ?? p.original ?? p.source;
+}
+
 export function CustomerPhotos({ memberId }: { memberId: string }) {
   const canUpload = useCan("customer_data:create");
   const canDelete = useCan("customer_data:delete");
 
-  const [keys, setKeys] = useState<string[]>([]); // all image keys for this customer
-  const [urls, setUrls] = useState<Record<string, string>>({}); // key -> presigned URL
+  const [keys, setKeys] = useState<string[]>([]); // all object keys for this customer
+  const [urls, setUrls] = useState<Record<string, string>>({}); // object key -> presigned URL
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [selected, setSelected] = useState<string>(""); // chosen folder; "" → auto-pick
-  const [uploadFolder, setUploadFolder] = useState<string>(""); // "" → follow active folder
+  const [uploadFolder, setUploadFolder] = useState<string>("");
   const [newFolderName, setNewFolderName] = useState("");
   const [lightbox, setLightbox] = useState<number | null>(null);
+  const [view, setView] = useState<string>("1024"); // "256" | "512" | "1024" | "original"
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{ x: number; y: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // One list call; folders + counts are derived from the key prefixes client-side.
   const loadIndex = useCallback(async () => {
     try {
       const res = await fetch(`/api/files/List?filePath=${encodeURIComponent(memberId)}`, {
@@ -128,8 +151,6 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
       const imgKeys = (Array.isArray(body) ? body : []).filter(
         (p): p is string => typeof p === "string" && IMAGE_RE.test(p)
       );
-      // Names are timestamp-prefixed, so a descending sort is newest-first.
-      imgKeys.sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
       setKeys(imgKeys);
     } catch {
       setKeys([]);
@@ -139,54 +160,93 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
   }, [memberId]);
 
   useEffect(() => {
-    // loadIndex only setState()s after awaits, not synchronously.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadIndex();
   }, [loadIndex]);
 
-  const grouped = useMemo(() => {
-    const m: Record<string, string[]> = {};
-    for (const k of keys) (m[folderOf(k, memberId)] ??= []).push(k);
-    return m;
+  // Collapse the raw object keys into source photos (original + renditions).
+  const photos = useMemo(() => {
+    const map = new Map<string, Photo>();
+    for (const key of keys) {
+      const name = fileNameOf(key);
+      const m = name.match(RENDITION_RE);
+      const source = m ? key.slice(0, key.length - name.length - 1) : key;
+      let p = map.get(source);
+      if (!p) {
+        p = { source, folder: folderOf(source, memberId), name: fileNameOf(source), renditions: {} };
+        map.set(source, p);
+      }
+      if (m) {
+        p.renditions[Number(m[1])] = key;
+      } else {
+        p.original = key;
+        p.name = name;
+        p.folder = folderOf(key, memberId);
+      }
+    }
+    // Newest first (timestamp-prefixed names sort lexically).
+    return Array.from(map.values()).sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
   }, [keys, memberId]);
 
-  // Fixed legacy folders, plus any extra folder discovered in storage (never hide data).
-  const folders = useMemo(() => {
-    const list = [...LEGACY_FOLDERS];
-    const known = new Set(LEGACY_FOLDERS.map((f) => f.key));
-    for (const k of Object.keys(grouped)) if (!known.has(k)) list.push({ key: k, label: k });
-    return list;
-  }, [grouped]);
+  // Group by normalized (case-insensitive) folder identity.
+  const grouped = useMemo(() => {
+    const m: Record<string, Photo[]> = {};
+    for (const p of photos) (m[norm(p.folder)] ??= []).push(p);
+    return m;
+  }, [photos]);
 
-  // Folders-first, like the legacy explorer: no "All photos" flatten. Land on the first
-  // folder that has photos (else the first folder); the user switches folders to browse.
+  // Nav folders: fixed legacy set + any extra found in storage, deduped
+  // case-insensitively. `norm` is the identity; `key` is the canonical segment used
+  // for uploads; `label` is what we show.
+  const folders = useMemo(() => {
+    const list: { norm: string; key: string; label: string }[] = LEGACY_FOLDERS.map((f) => ({
+      norm: norm(f.key),
+      key: f.key,
+      label: f.label,
+    }));
+    const known = new Set(list.map((f) => f.norm));
+    for (const p of photos) {
+      const n = norm(p.folder);
+      if (!known.has(n)) {
+        known.add(n);
+        list.push({ norm: n, key: p.folder, label: p.folder });
+      }
+    }
+    return list;
+  }, [photos]);
+
   const firstWithPhotos = useMemo(
-    () => folders.find((f) => (grouped[f.key]?.length ?? 0) > 0)?.key,
+    () => folders.find((f) => (grouped[f.norm]?.length ?? 0) > 0)?.norm,
     [folders, grouped]
   );
-  const activeFolder = selected || firstWithPhotos || folders[0]?.key || "";
-  const visibleKeys = useMemo(() => grouped[activeFolder] ?? [], [grouped, activeFolder]);
+  const activeFolder = selected || firstWithPhotos || folders[0]?.norm || ""; // normalized id
+  const visiblePhotos = useMemo(() => grouped[activeFolder] ?? [], [grouped, activeFolder]);
 
-  // Upload target: an existing folder, or a new custom folder name the user types.
+  function folderLabel(n: string): string {
+    return folders.find((f) => f.norm === n)?.label ?? n;
+  }
+  function folderKey(n: string): string {
+    return folders.find((f) => f.norm === n)?.key ?? n;
+  }
+
   const customFolder = sanitizeFolder(newFolderName);
-  const targetFolder = uploadFolder === NEW_FOLDER ? customFolder : uploadFolder || activeFolder;
+  const targetFolder =
+    uploadFolder === NEW_FOLDER ? customFolder : folderKey(uploadFolder || activeFolder);
 
-  // Resolve presigned URLs lazily for whatever folder is in view.
-  const visibleKey = visibleKeys.join("|");
+  const selectedLabel = activeFolder ? folderLabel(activeFolder) : "—";
+
+  // Presign grid thumbnails (one rendition per photo) with bounded concurrency.
+  const thumbKeysJoined = visiblePhotos.map(thumbKey).join("|");
   useEffect(() => {
     let active = true;
-    const missing = visibleKeys.filter((k) => !urls[k]);
-    if (missing.length === 0) return;
+    const wanted = visiblePhotos.map(thumbKey).filter((k) => k && !urls[k]);
+    if (wanted.length === 0) return;
     (async () => {
-      // Bounded concurrency so a large folder doesn't fire dozens of presign calls at
-      // once (which floods the BFF token mint and yields 401s).
-      const entries = await mapLimit(missing, 5, async (key) => {
+      const entries = await mapLimit(wanted, 5, async (key) => {
         try {
           const r = await fetch(`/api/files/PreSignedUrl?filePath=${encodeURIComponent(key)}`);
           if (!r.ok) return null;
           const url = pick(await readJson(r), "url", "Url");
-          // The worker can return a plain error string (e.g. "Invalid API Key"); only
-          // accept an actual http(s) URL so it never becomes a bogus <img src>.
           return url && /^https?:\/\//i.test(url) ? ([key, url] as const) : null;
         } catch {
           return null;
@@ -203,20 +263,69 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleKey]);
+  }, [thumbKeysJoined]);
 
-  // Lightbox keyboard navigation (←/→ to move, Esc to close).
+  // The photo + object key currently shown in the lightbox, per the selected size.
+  const current = lightbox !== null ? visiblePhotos[lightbox] : undefined;
+  const availableSizes = useMemo(
+    () => (current ? Object.keys(current.renditions).map(Number).sort((a, b) => a - b) : []),
+    [current]
+  );
+  const currentKey = useMemo(() => {
+    if (!current) return undefined;
+    if (view === "original") return current.original ?? thumbKey(current);
+    const w = Number(view);
+    return current.renditions[w] ?? current.original ?? thumbKey(current);
+  }, [current, view]);
+
+  // Resolve the lightbox image URL on demand (originals/large sizes aren't pre-fetched).
+  useEffect(() => {
+    if (!currentKey || urls[currentKey]) return;
+    let active = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/files/PreSignedUrl?filePath=${encodeURIComponent(currentKey)}`);
+        if (!r.ok) return;
+        const url = pick(await readJson(r), "url", "Url");
+        if (active && url && /^https?:\/\//i.test(url)) {
+          setUrls((prev) => ({ ...prev, [currentKey]: url }));
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentKey]);
+
+  // Reset zoom/pan whenever the shown image changes (intentional, not cascading).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, [currentKey]);
+
+  function openLightbox(i: number) {
+    setLightbox(i);
+    const p = visiblePhotos[i];
+    const sizes = p ? Object.keys(p.renditions).map(Number) : [];
+    setView(sizes.includes(1024) ? "1024" : sizes.length ? String(Math.max(...sizes)) : "original");
+  }
+
+  // Keyboard nav.
   useEffect(() => {
     if (lightbox === null) return;
     function onKey(e: KeyboardEvent) {
-      const n = visibleKeys.length;
+      const n = visiblePhotos.length;
       if (e.key === "Escape") setLightbox(null);
       else if (e.key === "ArrowRight") setLightbox((i) => (i === null ? i : (i + 1) % n));
       else if (e.key === "ArrowLeft") setLightbox((i) => (i === null ? i : (i - 1 + n) % n));
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lightbox, visibleKeys.length]);
+  }, [lightbox, visiblePhotos.length]);
 
   async function uploadOne(file: File, folder: string) {
     const contentType = file.type || "application/octet-stream";
@@ -234,7 +343,6 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     if (!uploadId) throw new Error("No upload id");
 
     const totalParts = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
-    // Faster variant: fetch each part's presigned URL and PUT the chunk in parallel.
     const parts = await Promise.all(
       Array.from({ length: totalParts }, (_, i) => i + 1).map(async (partNumber) => {
         const urlRes = await fetch(
@@ -242,11 +350,9 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
         );
         if (!urlRes.ok) throw new Error("Failed to get part URL");
         const presigned = pick(await readJson(urlRes), "url", "Url");
-        // Guard against the worker returning an error string (e.g. "Invalid API Key").
         if (!presigned || !/^https?:\/\//i.test(presigned)) {
           throw new Error("File worker did not return a valid upload URL (check API key).");
         }
-
         const start = (partNumber - 1) * CHUNK_SIZE;
         const chunk = file.slice(start, Math.min(start + CHUNK_SIZE, file.size));
         const put = await fetch(presigned, {
@@ -289,31 +395,32 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     if (inputRef.current) inputRef.current.value = "";
     if (ok > 0) {
       toast.success(`Uploaded ${ok} photo${ok > 1 ? "s" : ""} to ${folder}.`);
-      setSelected(folder); // jump to the folder we just filled (new folders appear here)
+      setSelected(norm(folder)); // jump to that folder (normalized identity)
       setUploadFolder("");
       setNewFolderName("");
       void loadIndex();
     }
   }
 
-  async function onDelete(key: string) {
-    const res = await fetch(`/api/files/Delete?filePath=${encodeURIComponent(key)}`, {
-      method: "DELETE",
-    }).catch(() => null);
-    if (res?.ok) {
+  // Delete a photo = delete the original AND every rendition object.
+  async function onDelete(p: Photo) {
+    const targets = [p.original, ...Object.values(p.renditions)].filter(Boolean) as string[];
+    const results = await Promise.all(
+      targets.map((key) =>
+        fetch(`/api/files/Delete?filePath=${encodeURIComponent(key)}`, { method: "DELETE" })
+          .then((r) => r.ok)
+          .catch(() => false)
+      )
+    );
+    if (results.some(Boolean)) {
       toast.success("Photo deleted.");
-      setKeys((prev) => prev.filter((k) => k !== key));
+      const removed = new Set(targets);
+      setKeys((prev) => prev.filter((k) => !removed.has(k)));
       setLightbox(null);
     } else {
       toast.error("Failed to delete photo.");
     }
   }
-
-  function folderLabel(key: string): string {
-    return folders.find((f) => f.key === key)?.label ?? key;
-  }
-
-  const selectedLabel = activeFolder ? folderLabel(activeFolder) : "—";
 
   return (
     <div className="space-y-4">
@@ -332,7 +439,7 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
               className={selectClass}
             >
               {folders.map((f) => (
-                <option key={f.key} value={f.key}>
+                <option key={f.norm} value={f.norm}>
                   {f.label}
                 </option>
               ))}
@@ -372,123 +479,223 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
         </div>
       ) : (
         <div className="gap-4 md:grid md:grid-cols-[210px_minmax(0,1fr)]">
-          {/* LEFT: folders */}
           <nav className="mb-3 flex gap-1 overflow-x-auto md:mb-0 md:flex-col md:overflow-visible">
             {folders.map((f) => (
               <FolderButton
-                key={f.key}
+                key={f.norm}
                 label={f.label}
-                count={grouped[f.key]?.length ?? 0}
-                active={activeFolder === f.key}
+                count={grouped[f.norm]?.length ?? 0}
+                active={activeFolder === f.norm}
                 onClick={() => {
-                  setSelected(f.key);
+                  setSelected(f.norm);
                   setLightbox(null);
                 }}
               />
             ))}
           </nav>
 
-          {/* RIGHT: images for the selected folder */}
           <div className="min-w-0">
             <div className="mb-2 text-sm text-muted-foreground">
-              {selectedLabel} · {visibleKeys.length} photo{visibleKeys.length === 1 ? "" : "s"}
+              {selectedLabel} · {visiblePhotos.length} photo{visiblePhotos.length === 1 ? "" : "s"}
             </div>
-            {visibleKeys.length === 0 ? (
+            {visiblePhotos.length === 0 ? (
               <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
                 No photos in {selectedLabel} for {memberId}.
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                {visibleKeys.map((key, i) => (
-                  <div key={key} className="group relative overflow-hidden rounded-md border bg-muted/30">
-                    {urls[key] ? (
-                      <>
-                        {/* Worker-presigned S3 URLs are remote + short-lived; use a plain img. */}
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={urls[key]}
-                          alt={fileNameOf(key)}
-                          className="aspect-square w-full cursor-pointer object-cover"
-                          onClick={() => setLightbox(i)}
-                        />
-                        {canDelete && (
-                          <button
-                            type="button"
-                            onClick={() => onDelete(key)}
-                            aria-label="Delete photo"
-                            className="absolute right-1 top-1 rounded-md bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
-                          >
-                            <Trash2 className="size-4" />
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <div className="flex aspect-square w-full items-center justify-center">
-                        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-                      </div>
-                    )}
-                  </div>
-                ))}
+                {visiblePhotos.map((p, i) => {
+                  const tk = thumbKey(p);
+                  return (
+                    <div
+                      key={p.source}
+                      className="group relative overflow-hidden rounded-md border bg-muted/30"
+                    >
+                      {urls[tk] ? (
+                        <>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={urls[tk]}
+                            alt={p.name}
+                            loading="lazy"
+                            className="aspect-square w-full cursor-pointer object-cover"
+                            onClick={() => openLightbox(i)}
+                          />
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => onDelete(p)}
+                              aria-label="Delete photo"
+                              className="absolute right-1 top-1 rounded-md bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <div className="flex aspect-square w-full items-center justify-center">
+                          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Lightbox with prev/next navigation */}
-      {lightbox !== null && visibleKeys[lightbox] && (
+      {/* Lightbox: size selector (default 1024) + View original + zoom/pan */}
+      {current && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4"
+          className="fixed inset-0 z-50 flex flex-col bg-black/90"
           onClick={() => setLightbox(null)}
         >
-          <button
-            type="button"
-            aria-label="Close"
-            className="absolute right-4 top-4 rounded-md bg-white/10 p-2 text-white hover:bg-white/20"
-            onClick={() => setLightbox(null)}
+          {/* Toolbar */}
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 p-3 text-white"
+            onClick={(e) => e.stopPropagation()}
           >
-            <X />
-          </button>
+            <div className="flex flex-wrap items-center gap-1">
+              {availableSizes.map((w) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => setView(String(w))}
+                  className={`rounded-md px-2.5 py-1 text-xs ${
+                    view === String(w) ? "bg-white text-black" : "bg-white/10 hover:bg-white/20"
+                  }`}
+                >
+                  {w}px
+                </button>
+              ))}
+              {current.original && (
+                <button
+                  type="button"
+                  onClick={() => setView("original")}
+                  className={`rounded-md px-2.5 py-1 text-xs ${
+                    view === "original" ? "bg-white text-black" : "bg-white/10 hover:bg-white/20"
+                  }`}
+                >
+                  <Maximize2 className="mr-1 inline size-3.5" /> Original
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-label="Zoom out"
+                className="rounded-md bg-white/10 p-2 hover:bg-white/20"
+                onClick={() => setZoom((z) => Math.max(1, +(z / 1.3).toFixed(2)))}
+              >
+                <ZoomOut className="size-4" />
+              </button>
+              <span className="w-12 text-center text-xs tabular-nums">{Math.round(zoom * 100)}%</span>
+              <button
+                type="button"
+                aria-label="Zoom in"
+                className="rounded-md bg-white/10 p-2 hover:bg-white/20"
+                onClick={() => setZoom((z) => Math.min(8, +(z * 1.3).toFixed(2)))}
+              >
+                <ZoomIn className="size-4" />
+              </button>
+              {canDelete && (
+                <button
+                  type="button"
+                  aria-label="Delete photo"
+                  className="ml-1 rounded-md bg-white/10 p-2 hover:bg-white/20"
+                  onClick={() => onDelete(current)}
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              )}
+              <button
+                type="button"
+                aria-label="Close"
+                className="ml-1 rounded-md bg-white/10 p-2 hover:bg-white/20"
+                onClick={() => setLightbox(null)}
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          </div>
 
-          {visibleKeys.length > 1 && (
-            <button
-              type="button"
-              aria-label="Previous photo"
-              className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white hover:bg-white/20 sm:left-6"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLightbox((i) => (i === null ? i : (i - 1 + visibleKeys.length) % visibleKeys.length));
-              }}
-            >
-              <ChevronLeft />
-            </button>
-          )}
+          {/* Stage */}
+          <div
+            className="relative flex flex-1 items-center justify-center overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+            onWheel={(e) =>
+              setZoom((z) => Math.min(8, Math.max(1, +(z * (e.deltaY < 0 ? 1.1 : 0.9)).toFixed(2))))
+            }
+            onPointerDown={(e) => {
+              if (zoom <= 1) return;
+              dragRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+              setDragging(true);
+            }}
+            onPointerMove={(e) => {
+              if (!dragRef.current) return;
+              setPan({ x: e.clientX - dragRef.current.x, y: e.clientY - dragRef.current.y });
+            }}
+            onPointerUp={() => {
+              dragRef.current = null;
+              setDragging(false);
+            }}
+            onPointerLeave={() => {
+              dragRef.current = null;
+              setDragging(false);
+            }}
+            style={{ cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "default" }}
+          >
+            {visiblePhotos.length > 1 && (
+              <button
+                type="button"
+                aria-label="Previous photo"
+                className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white hover:bg-white/20 sm:left-6"
+                onClick={() =>
+                  setLightbox((i) => (i === null ? i : (i - 1 + visiblePhotos.length) % visiblePhotos.length))
+                }
+              >
+                <ChevronLeft />
+              </button>
+            )}
 
-          <figure className="flex max-h-full max-w-full flex-col items-center gap-2" onClick={(e) => e.stopPropagation()}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={urls[visibleKeys[lightbox]]}
-              alt={fileNameOf(visibleKeys[lightbox])}
-              className="max-h-[80vh] max-w-full rounded-md object-contain"
-            />
-            <figcaption className="max-w-full truncate text-xs text-white/70">
-              {fileNameOf(visibleKeys[lightbox])} · {lightbox + 1}/{visibleKeys.length}
-            </figcaption>
-          </figure>
+            {currentKey && urls[currentKey] ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={urls[currentKey]}
+                alt={current.name}
+                draggable={false}
+                className="max-h-full max-w-full select-none object-contain"
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transition: dragging ? "none" : "transform 0.1s ease-out",
+                }}
+              />
+            ) : (
+              <Loader2 className="size-8 animate-spin text-white/70" />
+            )}
 
-          {visibleKeys.length > 1 && (
-            <button
-              type="button"
-              aria-label="Next photo"
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white hover:bg-white/20 sm:right-6"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLightbox((i) => (i === null ? i : (i + 1) % visibleKeys.length));
-              }}
-            >
-              <ChevronRight />
-            </button>
-          )}
+            {visiblePhotos.length > 1 && (
+              <button
+                type="button"
+                aria-label="Next photo"
+                className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white hover:bg-white/20 sm:right-6"
+                onClick={() => setLightbox((i) => (i === null ? i : (i + 1) % visiblePhotos.length))}
+              >
+                <ChevronRight />
+              </button>
+            )}
+          </div>
+
+          {/* Caption */}
+          <div
+            className="truncate p-3 text-center text-xs text-white/70"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {current.name} · {lightbox! + 1}/{visiblePhotos.length} ·{" "}
+            {view === "original" ? "original" : `${view}px`}
+          </div>
         </div>
       )}
     </div>
