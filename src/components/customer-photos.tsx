@@ -59,13 +59,34 @@ function friendlyName(original: string): string {
   return `${date}_${time}-${rand}-${safe}`;
 }
 
-// Key layout is {memberId}/{folder}/{file}. Files without a folder bucket into "Other".
-function folderOf(key: string): string {
-  const parts = key.split("/");
-  return parts.length >= 3 ? parts[1] : "Other";
+// Object keys may carry a storage prefix before the member code (e.g.
+// "storage/dev/MA102/ColdVault/file.jpg"), so anchor on the member code like the
+// legacy explorer did (indexOf(memberCode + "/")). The folder is the first segment
+// after the member code; a file directly under the member buckets into "Other".
+function folderOf(key: string, memberId: string): string {
+  const marker = `${memberId}/`;
+  const idx = key.indexOf(marker);
+  const rel = idx >= 0 ? key.slice(idx + marker.length) : key;
+  const segs = rel.split("/").filter(Boolean);
+  return segs.length > 1 ? segs[0] : "Other";
 }
 function fileNameOf(key: string): string {
   return key.split("/").pop() ?? key;
+}
+
+// Run async tasks with bounded concurrency (avoids storming the BFF/worker with
+// dozens of simultaneous presign requests).
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const i = cursor++;
+      out[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 export function CustomerPhotos({ memberId }: { memberId: string }) {
@@ -108,9 +129,9 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
 
   const grouped = useMemo(() => {
     const m: Record<string, string[]> = {};
-    for (const k of keys) (m[folderOf(k)] ??= []).push(k);
+    for (const k of keys) (m[folderOf(k, memberId)] ??= []).push(k);
     return m;
-  }, [keys]);
+  }, [keys, memberId]);
 
   // Fixed legacy folders, plus any extra folder discovered in storage (never hide data).
   const folders = useMemo(() => {
@@ -136,17 +157,17 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     const missing = visibleKeys.filter((k) => !urls[k]);
     if (missing.length === 0) return;
     (async () => {
-      const entries = await Promise.all(
-        missing.map(async (key) => {
-          try {
-            const r = await fetch(`/api/files/PreSignedUrl?filePath=${encodeURIComponent(key)}`);
-            const url = pick(await readJson(r), "url", "Url");
-            return url ? ([key, url] as const) : null;
-          } catch {
-            return null;
-          }
-        })
-      );
+      // Bounded concurrency so a large folder doesn't fire dozens of presign calls at
+      // once (which floods the BFF token mint and yields 401s).
+      const entries = await mapLimit(missing, 5, async (key) => {
+        try {
+          const r = await fetch(`/api/files/PreSignedUrl?filePath=${encodeURIComponent(key)}`);
+          const url = pick(await readJson(r), "url", "Url");
+          return url ? ([key, url] as const) : null;
+        } catch {
+          return null;
+        }
+      });
       if (!active) return;
       setUrls((prev) => {
         const next = { ...prev };
