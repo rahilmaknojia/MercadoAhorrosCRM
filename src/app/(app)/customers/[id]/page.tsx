@@ -220,7 +220,7 @@ export default async function CustomerDetailPage({
         </CardContent>
       </Card>
 
-      <CustomerPhotos memberId={customer.memberId} />
+      <CustomerPhotos memberId={customer.memberId} customerId={customer.id} />
 
       <div className="space-y-2">
         <h2 className="text-lg font-semibold">Activity</h2>

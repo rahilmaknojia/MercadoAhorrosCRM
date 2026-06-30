@@ -4,10 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useCan } from "@/components/permissions-provider";
 import { prepareImage } from "@/lib/image-prep";
+import { logPhotoActivity } from "@/app/(app)/customers/photo-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Camera,
+  Check,
+  CheckSquare,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -154,9 +157,13 @@ function putWithProgress(
 
 type UploadJob = { id: string; name: string; pct: number; error?: boolean };
 
-export function CustomerPhotos({ memberId }: { memberId: string }) {
+export function CustomerPhotos({ memberId, customerId }: { memberId: string; customerId?: number }) {
   const canUpload = useCan("customer_data:create");
   const canDelete = useCan("customer_data:delete");
+
+  function audit(message: string) {
+    if (customerId) void logPhotoActivity(customerId, message);
+  }
 
   const [keys, setKeys] = useState<string[]>([]); // all object keys for this customer
   const [urls, setUrls] = useState<Record<string, string>>({}); // object key -> presigned URL
@@ -168,6 +175,8 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
   const [uploadFolder, setUploadFolder] = useState<string>("");
   const [newFolderName, setNewFolderName] = useState("");
   const [lightbox, setLightbox] = useState<number | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [view, setView] = useState<string>("1024"); // "256" | "512" | "1024" | "original"
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
@@ -496,6 +505,7 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     if (cameraRef.current) cameraRef.current.value = "";
     if (ok > 0) {
       toast.success(`Uploaded ${ok} photo${ok > 1 ? "s" : ""} to ${folder}.`);
+      audit(`Uploaded ${ok} photo${ok > 1 ? "s" : ""} to ${folder}.`);
       setSelected(norm(folder)); // jump to that folder (normalized identity)
       setUploadFolder("");
       setNewFolderName("");
@@ -503,9 +513,12 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     }
   }
 
-  // Delete a photo = delete the original AND every rendition object.
-  async function onDelete(p: Photo) {
-    const targets = [p.original, ...Object.values(p.renditions)].filter(Boolean) as string[];
+  function photoKeys(p: Photo): string[] {
+    return [p.original, ...Object.values(p.renditions)].filter(Boolean) as string[];
+  }
+
+  // Delete a set of object keys (original + renditions). Returns whether any succeeded.
+  async function deleteObjects(targets: string[]): Promise<boolean> {
     const results = await Promise.all(
       targets.map((key) =>
         fetch(`/api/files/Delete?filePath=${encodeURIComponent(key)}`, { method: "DELETE" })
@@ -513,13 +526,45 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
           .catch(() => false)
       )
     );
-    if (results.some(Boolean)) {
+    return results.some(Boolean);
+  }
+
+  // Delete a single photo = the original AND every rendition object.
+  async function onDelete(p: Photo) {
+    const targets = photoKeys(p);
+    if (await deleteObjects(targets)) {
       toast.success("Photo deleted.");
       const removed = new Set(targets);
       setKeys((prev) => prev.filter((k) => !removed.has(k)));
       setLightbox(null);
+      audit(`Deleted a photo from ${folderLabel(p.folder)}.`);
     } else {
       toast.error("Failed to delete photo.");
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function bulkDelete() {
+    const chosen = visiblePhotos.filter((p) => selectedIds.has(p.source));
+    if (chosen.length === 0) return;
+    const targets = chosen.flatMap(photoKeys);
+    if (await deleteObjects(targets)) {
+      toast.success(`Deleted ${chosen.length} photo${chosen.length > 1 ? "s" : ""}.`);
+      const removed = new Set(targets);
+      setKeys((prev) => prev.filter((k) => !removed.has(k)));
+      setSelectedIds(new Set());
+      setSelectMode(false);
+      audit(`Deleted ${chosen.length} photo${chosen.length > 1 ? "s" : ""} from ${selectedLabel}.`);
+    } else {
+      toast.error("Failed to delete photos.");
     }
   }
 
@@ -626,6 +671,8 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
                 onClick={() => {
                   setSelected(f.norm);
                   setLightbox(null);
+                  setSelectMode(false);
+                  setSelectedIds(new Set());
                 }}
               />
             ))}
@@ -654,9 +701,40 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
                 : undefined
             }
           >
-            <div className="mb-2 text-sm text-muted-foreground">
-              {selectedLabel} · {visiblePhotos.length} photo{visiblePhotos.length === 1 ? "" : "s"}
-              {canUpload && <span className="ml-2 hidden sm:inline">· drop or paste images to upload</span>}
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm text-muted-foreground">
+                {selectedLabel} · {visiblePhotos.length} photo{visiblePhotos.length === 1 ? "" : "s"}
+                {canUpload && <span className="ml-2 hidden sm:inline">· drop or paste images to upload</span>}
+              </span>
+              {canDelete && visiblePhotos.length > 0 && (
+                selectMode ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{selectedIds.size} selected</span>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={selectedIds.size === 0}
+                      onClick={() => void bulkDelete()}
+                    >
+                      <Trash2 /> Delete
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setSelectMode(false);
+                        setSelectedIds(new Set());
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={() => setSelectMode(true)}>
+                    <CheckSquare /> Select
+                  </Button>
+                )
+              )}
             </div>
             {visiblePhotos.length === 0 ? (
               <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
@@ -666,10 +744,13 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                 {visiblePhotos.map((p, i) => {
                   const tk = thumbKey(p);
+                  const isSelected = selectedIds.has(p.source);
                   return (
                     <div
                       key={p.source}
-                      className="group relative overflow-hidden rounded-md border bg-muted/30"
+                      className={`group relative overflow-hidden rounded-md border bg-muted/30 ${
+                        selectMode && isSelected ? "ring-2 ring-brand" : ""
+                      }`}
                     >
                       {urls[tk] ? (
                         <>
@@ -679,17 +760,30 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
                             alt={p.name}
                             loading="lazy"
                             className="aspect-square w-full cursor-pointer object-cover"
-                            onClick={() => showAt(i)}
+                            onClick={() => (selectMode ? toggleSelect(p.source) : showAt(i))}
                           />
-                          {canDelete && (
+                          {selectMode ? (
                             <button
                               type="button"
-                              onClick={() => onDelete(p)}
-                              aria-label="Delete photo"
-                              className="absolute right-1 top-1 rounded-md bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+                              onClick={() => toggleSelect(p.source)}
+                              aria-label={isSelected ? "Deselect" : "Select"}
+                              className={`absolute left-1 top-1 flex size-6 items-center justify-center rounded-md border ${
+                                isSelected ? "border-brand bg-brand text-white" : "border-white/70 bg-black/40 text-transparent"
+                              }`}
                             >
-                              <Trash2 className="size-4" />
+                              <Check className="size-4" />
                             </button>
+                          ) : (
+                            canDelete && (
+                              <button
+                                type="button"
+                                onClick={() => onDelete(p)}
+                                aria-label="Delete photo"
+                                className="absolute right-1 top-1 rounded-md bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+                              >
+                                <Trash2 className="size-4" />
+                              </button>
+                            )
                           )}
                         </>
                       ) : (
