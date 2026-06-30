@@ -23,6 +23,16 @@ export const FILTER_OPERATORS = [
   { value: "startswith", label: "starts with" },
 ] as const;
 
+// Operators supported by StoreMetadata JSONB filters (StoreMetadataSqlFilter).
+export const METADATA_OPERATORS = [
+  { value: "eq", label: "equals" },
+  { value: "contains", label: "contains" },
+  { value: "gt", label: "greater than" },
+  { value: "gte", label: "greater or equal" },
+  { value: "lt", label: "less than" },
+  { value: "lte", label: "less or equal" },
+] as const;
+
 // Fields the API can group by (mirrors CustomerService.GroupableFields).
 export const GROUP_FIELDS = [
   { value: "status", label: "Status" },

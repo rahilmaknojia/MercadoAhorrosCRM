@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { saveReport } from "@/app/(app)/reports/actions";
-import { CUSTOMER_FIELDS, FILTER_OPERATORS, GROUP_FIELDS } from "@/lib/report";
+import { CUSTOMER_FIELDS, FILTER_OPERATORS, GROUP_FIELDS, METADATA_OPERATORS } from "@/lib/report";
 import type { ReportDefinition, ReportFilterRow, ReportVisualization } from "@/lib/types";
 import { ReportView } from "@/components/report-view";
 import { Button } from "@/components/ui/button";
@@ -35,8 +35,18 @@ export function ReportBuilder({
   const [visualization, setVisualization] = useState<ReportVisualization>(
     def?.visualization ?? "table"
   );
-  const [groupBy, setGroupBy] = useState(def?.groupBy ?? GROUP_FIELDS[0].value);
+  const initialMetaPath = def?.groupBy?.startsWith("meta:") ? def.groupBy.slice(5) : "";
+  const [groupBy, setGroupBy] = useState(
+    initialMetaPath ? "__meta__" : (def?.groupBy ?? GROUP_FIELDS[0].value)
+  );
+  const [metaGroupPath, setMetaGroupPath] = useState(initialMetaPath);
   const [series, setSeries] = useState(def?.series ?? "");
+  const [metaFilters, setMetaFilters] = useState<ReportFilterRow[]>(
+    (def?.metadataFilters ?? []).map((f) => {
+      const [field, operator, ...rest] = f.split("|");
+      return { field, operator, value: rest.join("|") };
+    })
+  );
   const [columns, setColumns] = useState<string[]>(
     def?.columns ?? ["memberId", "businessName", "storeCity", "storeState", "status"]
   );
@@ -49,15 +59,23 @@ export function ReportBuilder({
   const [preview, setPreview] = useState<ReportDefinition | null>(def ?? null);
   const [saving, startSaving] = useTransition();
 
+  function resolvedGroupBy(): string | undefined {
+    if (visualization === "table") return undefined;
+    return groupBy === "__meta__" ? `meta:${metaGroupPath.trim()}` : groupBy;
+  }
+
   function buildDefinition(): ReportDefinition {
     return {
       source: "customers",
       filters: filters
         .filter((f) => f.field && f.value !== "")
         .map((f) => `${f.field}|${f.operator}|${f.value}`),
+      metadataFilters: metaFilters
+        .filter((f) => f.field && f.value !== "")
+        .map((f) => `${f.field}|${f.operator}|${f.value}`),
       columns: visualization === "table" ? columns : undefined,
       visualization,
-      groupBy: visualization === "table" ? undefined : groupBy,
+      groupBy: resolvedGroupBy(),
       series: visualization === "bar" && series ? series : undefined,
       aggregate: "count",
       pinnedToDashboard: def?.pinnedToDashboard ?? false,
@@ -125,7 +143,16 @@ export function ReportBuilder({
                     {g.label}
                   </option>
                 ))}
+                <option value="__meta__">Metadata field…</option>
               </select>
+              {groupBy === "__meta__" && (
+                <Input
+                  value={metaGroupPath}
+                  onChange={(e) => setMetaGroupPath(e.target.value)}
+                  placeholder="metadata path, e.g. gas.brand"
+                  className="mt-1"
+                />
+              )}
             </div>
             {visualization === "bar" && (
               <div className="space-y-1">
@@ -219,6 +246,59 @@ export function ReportBuilder({
                 size="icon-sm"
                 aria-label="Remove filter"
                 onClick={() => setFilters((p) => p.filter((_, j) => j !== i))}
+              >
+                <X />
+              </Button>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label>Metadata filters</Label>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setMetaFilters((p) => [...p, { field: "", operator: "eq", value: "" }])}
+            >
+              <Plus /> Add
+            </Button>
+          </div>
+          {metaFilters.length === 0 && (
+            <p className="text-xs text-muted-foreground">Filter on StoreMetadata JSON values (e.g. gas.brand).</p>
+          )}
+          {metaFilters.map((row, i) => (
+            <div key={i} className="flex items-center gap-1">
+              <Input
+                value={row.field}
+                onChange={(e) => setMetaFilters((p) => p.map((r, j) => (j === i ? { ...r, field: e.target.value } : r)))}
+                placeholder="path e.g. gas.brand"
+                className="h-9"
+              />
+              <select
+                className={`${selectClass} w-28`}
+                value={row.operator}
+                onChange={(e) => setMetaFilters((p) => p.map((r, j) => (j === i ? { ...r, operator: e.target.value } : r)))}
+              >
+                {METADATA_OPERATORS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <Input
+                value={row.value}
+                onChange={(e) => setMetaFilters((p) => p.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)))}
+                placeholder="value"
+                className="h-9"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Remove metadata filter"
+                onClick={() => setMetaFilters((p) => p.filter((_, j) => j !== i))}
               >
                 <X />
               </Button>
