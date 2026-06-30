@@ -8,7 +8,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { ReportView } from "@/components/report-view";
 import { Can } from "@/components/permissions-provider";
 import { deleteReport, setPinned } from "../actions";
-import { Pencil, Pin, Trash2 } from "lucide-react";
+import { Download, Pencil, Pin, Trash2 } from "lucide-react";
 
 export default async function ReportDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -49,6 +49,14 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
             {def.pinnedToDashboard && <Pin className="size-4 text-brand" />}
           </div>
           <div className="flex items-center gap-2">
+            <Can permission="reports:export">
+              <a
+                href={`/api/reports/${preset.id}/export`}
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                <Download /> Export CSV
+              </a>
+            </Can>
             <Can permission="reports:update">
               <form action={setPinned.bind(null, preset.id, !def.pinnedToDashboard)}>
                 <Button type="submit" variant="outline" size="sm">
