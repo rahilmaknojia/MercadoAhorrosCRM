@@ -234,8 +234,11 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
     for (const key of keys) {
       const name = fileNameOf(key);
       const m = name.match(RENDITION_RE);
-      // Rendition → its parent dir; original → the key minus its image extension.
-      const source = m ? key.slice(0, key.length - name.length - 1) : stripImageExt(key);
+      // Identity = the original key with its image extension stripped. Renditions live
+      // one level deeper ({original-without-ext}/wN.webp), so for a rendition we take its
+      // parent dir; for an original we strip the extension. Strip on both sides so they
+      // collapse into ONE photo regardless of whether the worker keeps the extension.
+      const source = stripImageExt(m ? key.slice(0, key.length - name.length - 1) : key);
       let p = map.get(source);
       if (!p) {
         p = { source, folder: folderOf(source, memberId), name: fileNameOf(source), renditions: {} };
