@@ -19,6 +19,8 @@ import {
   Images,
   Loader2,
   Maximize2,
+  Pause,
+  Play,
   RotateCw,
   Trash2,
   Upload,
@@ -113,19 +115,6 @@ function sanitizeFolder(s: string): string {
     .trim();
 }
 
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let cursor = 0;
-  async function worker() {
-    while (cursor < items.length) {
-      const i = cursor++;
-      out[i] = await fn(items[i]);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return out;
-}
-
 // The rendition we show as a grid thumbnail (small first) / default lightbox size.
 function thumbKey(p: Photo): string {
   return p.renditions[256] ?? p.renditions[512] ?? p.renditions[1024] ?? p.original ?? p.source;
@@ -178,6 +167,7 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [view, setView] = useState<string>("1024"); // "256" | "512" | "1024" | "original"
+  const [playing, setPlaying] = useState(false); // slideshow
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -302,35 +292,40 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
 
   const selectedLabel = activeFolder ? folderLabel(activeFolder) : "—";
 
-  // Presign grid thumbnails (one rendition per photo) with bounded concurrency.
-  const thumbKeysJoined = visiblePhotos.map(thumbKey).join("|");
-  useEffect(() => {
-    let active = true;
-    const wanted = visiblePhotos.map(thumbKey).filter((k) => k && !urls[k]);
-    if (wanted.length === 0) return;
-    (async () => {
-      const entries = await mapLimit(wanted, 5, async (key) => {
+  // Lazily presign grid thumbnails as tiles scroll into view, through a bounded queue
+  // so a big folder never fires dozens of presign calls at once.
+  const inflightRef = useRef(0);
+  const queueRef = useRef<string[]>([]);
+  const requestedRef = useRef<Set<string>>(new Set());
+  const pump = useCallback(() => {
+    while (inflightRef.current < 6 && queueRef.current.length > 0) {
+      const key = queueRef.current.shift()!;
+      inflightRef.current++;
+      (async () => {
         try {
           const r = await fetch(`/api/files/PreSignedUrl?filePath=${encodeURIComponent(key)}`);
-          if (!r.ok) return null;
-          const url = pick(await readJson(r), "url", "Url");
-          return url && /^https?:\/\//i.test(url) ? ([key, url] as const) : null;
+          if (r.ok) {
+            const url = pick(await readJson(r), "url", "Url");
+            if (url && /^https?:\/\//i.test(url)) setUrls((prev) => ({ ...prev, [key]: url }));
+          }
         } catch {
-          return null;
+          /* ignore */
+        } finally {
+          inflightRef.current--;
+          pump();
         }
-      });
-      if (!active) return;
-      setUrls((prev) => {
-        const next = { ...prev };
-        for (const e of entries) if (e) next[e[0]] = e[1];
-        return next;
-      });
-    })();
-    return () => {
-      active = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [thumbKeysJoined]);
+      })();
+    }
+  }, []);
+  const requestThumb = useCallback(
+    (key: string) => {
+      if (!key || requestedRef.current.has(key)) return;
+      requestedRef.current.add(key);
+      queueRef.current.push(key);
+      pump();
+    },
+    [pump]
+  );
 
   // The photo + object key currently shown in the lightbox, per the selected size.
   const current = lightbox !== null ? visiblePhotos[lightbox] : undefined;
@@ -405,13 +400,17 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
     setLightbox(idx);
     setView(defaultViewFor(visiblePhotos[idx]));
   }
+  function closeLightbox() {
+    setLightbox(null);
+    setPlaying(false);
+  }
 
   // Keyboard nav.
   useEffect(() => {
     if (lightbox === null) return;
     const at = lightbox;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setLightbox(null);
+      if (e.key === "Escape") closeLightbox();
       else if (e.key === "ArrowRight") showAt(at + 1);
       else if (e.key === "ArrowLeft") showAt(at - 1);
     }
@@ -419,6 +418,15 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lightbox, visiblePhotos]);
+
+  // Slideshow: auto-advance every 3s while playing.
+  useEffect(() => {
+    if (!playing || lightbox === null) return;
+    const at = lightbox;
+    const id = window.setInterval(() => showAt(at + 1), 3000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, lightbox, visiblePhotos.length]);
 
   async function uploadOne(file: File, folder: string, onProgress?: (loaded: number) => void) {
     const contentType = file.type || "application/octet-stream";
@@ -742,58 +750,20 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                {visiblePhotos.map((p, i) => {
-                  const tk = thumbKey(p);
-                  const isSelected = selectedIds.has(p.source);
-                  return (
-                    <div
-                      key={p.source}
-                      className={`group relative overflow-hidden rounded-md border bg-muted/30 ${
-                        selectMode && isSelected ? "ring-2 ring-brand" : ""
-                      }`}
-                    >
-                      {urls[tk] ? (
-                        <>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={urls[tk]}
-                            alt={p.name}
-                            loading="lazy"
-                            className="aspect-square w-full cursor-pointer object-cover"
-                            onClick={() => (selectMode ? toggleSelect(p.source) : showAt(i))}
-                          />
-                          {selectMode ? (
-                            <button
-                              type="button"
-                              onClick={() => toggleSelect(p.source)}
-                              aria-label={isSelected ? "Deselect" : "Select"}
-                              className={`absolute left-1 top-1 flex size-6 items-center justify-center rounded-md border ${
-                                isSelected ? "border-brand bg-brand text-white" : "border-white/70 bg-black/40 text-transparent"
-                              }`}
-                            >
-                              <Check className="size-4" />
-                            </button>
-                          ) : (
-                            canDelete && (
-                              <button
-                                type="button"
-                                onClick={() => onDelete(p)}
-                                aria-label="Delete photo"
-                                className="absolute right-1 top-1 rounded-md bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
-                              >
-                                <Trash2 className="size-4" />
-                              </button>
-                            )
-                          )}
-                        </>
-                      ) : (
-                        <div className="flex aspect-square w-full items-center justify-center">
-                          <Loader2 className="size-5 animate-spin text-muted-foreground" />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                {visiblePhotos.map((p, i) => (
+                  <PhotoTile
+                    key={p.source}
+                    photo={p}
+                    url={urls[thumbKey(p)]}
+                    selectMode={selectMode}
+                    isSelected={selectedIds.has(p.source)}
+                    canDelete={canDelete}
+                    onRequest={requestThumb}
+                    onOpen={() => showAt(i)}
+                    onToggle={() => toggleSelect(p.source)}
+                    onDelete={() => onDelete(p)}
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -802,10 +772,7 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
 
       {/* Lightbox: size selector (default 1024) + View original + zoom/pan */}
       {current && (
-        <div
-          className="fixed inset-0 z-50 flex flex-col bg-black/90"
-          onClick={() => setLightbox(null)}
-        >
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/90" onClick={closeLightbox}>
           {/* Toolbar */}
           <div
             className="flex flex-wrap items-center justify-between gap-2 p-3 text-white"
@@ -878,6 +845,16 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
               >
                 <ExternalLink className="size-4" />
               </button>
+              {visiblePhotos.length > 1 && (
+                <button
+                  type="button"
+                  aria-label={playing ? "Pause slideshow" : "Play slideshow"}
+                  className="rounded-md bg-white/10 p-2 hover:bg-white/20"
+                  onClick={() => setPlaying((s) => !s)}
+                >
+                  {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
+                </button>
+              )}
               {canDelete && (
                 <button
                   type="button"
@@ -892,7 +869,7 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
                 type="button"
                 aria-label="Close"
                 className="ml-1 rounded-md bg-white/10 p-2 hover:bg-white/20"
-                onClick={() => setLightbox(null)}
+                onClick={closeLightbox}
               >
                 <X className="size-4" />
               </button>
@@ -972,6 +949,99 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
             {current.name} · {lightbox! + 1}/{visiblePhotos.length} ·{" "}
             {view === "original" ? "original" : `${view}px`}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// A grid tile that presigns its thumbnail only once it scrolls near the viewport.
+function PhotoTile({
+  photo,
+  url,
+  selectMode,
+  isSelected,
+  canDelete,
+  onRequest,
+  onOpen,
+  onToggle,
+  onDelete,
+}: {
+  photo: Photo;
+  url?: string;
+  selectMode: boolean;
+  isSelected: boolean;
+  canDelete: boolean;
+  onRequest: (key: string) => void;
+  onOpen: () => void;
+  onToggle: () => void;
+  onDelete: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const tk = thumbKey(photo);
+  useEffect(() => {
+    if (url) return;
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          onRequest(tk);
+          obs.disconnect();
+        }
+      },
+      { rootMargin: "300px" }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [url, tk, onRequest]);
+
+  return (
+    <div
+      ref={ref}
+      className={`group relative overflow-hidden rounded-md border bg-muted/30 ${
+        selectMode && isSelected ? "ring-2 ring-brand" : ""
+      }`}
+    >
+      {url ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={url}
+            alt={photo.name}
+            loading="lazy"
+            className="aspect-square w-full cursor-pointer object-cover"
+            onClick={() => (selectMode ? onToggle() : onOpen())}
+          />
+          {selectMode ? (
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label={isSelected ? "Deselect" : "Select"}
+              className={`absolute left-1 top-1 flex size-6 items-center justify-center rounded-md border ${
+                isSelected
+                  ? "border-brand bg-brand text-white"
+                  : "border-white/70 bg-black/40 text-transparent"
+              }`}
+            >
+              <Check className="size-4" />
+            </button>
+          ) : (
+            canDelete && (
+              <button
+                type="button"
+                onClick={onDelete}
+                aria-label="Delete photo"
+                className="absolute right-1 top-1 rounded-md bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            )
+          )}
+        </>
+      ) : (
+        <div className="flex aspect-square w-full items-center justify-center">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
         </div>
       )}
     </div>
