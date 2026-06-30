@@ -1,20 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { apiFetch } from "@/lib/server/api";
-import type { Customer, CustomerLog, StoreMetadata } from "@/lib/types";
+import type { Customer, StoreMetadata } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Can } from "@/components/permissions-provider";
 import { CustomerPhotos } from "@/components/customer-photos";
+import { CustomerActivity } from "@/components/customer-activity";
 import { Pencil } from "lucide-react";
 
 function statusVariant(status: string): "default" | "secondary" | "outline" {
@@ -31,13 +24,6 @@ function fmtDate(iso?: string | null): string {
     : new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(d);
 }
 
-function fmtDateTime(iso?: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? "—"
-    : new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(d);
-}
 
 /** A labelled value row; hidden when there is no value (keeps cards tidy). */
 function Field({ label, value }: { label: string; value?: string | null }) {
@@ -90,11 +76,8 @@ export default async function CustomerDetailPage({
   }
   const customer = (await res.json()) as Customer;
 
-  // Activity logs (newest first) and store metadata for this customer.
-  const [logs, metadata] = await Promise.all([
-    fetchArray<CustomerLog>(
-      `/api/customerlogs?filters=customerId|exact|${id}&sortField=createdOn&ascending=false&pageSize=50`
-    ),
+  // Store metadata for this customer (activity is loaded + paginated client-side).
+  const [metadata] = await Promise.all([
     fetchArray<StoreMetadata>(`/api/storemetadata?filters=customerId|exact|${id}&pageSize=1`),
   ]);
 
@@ -222,37 +205,7 @@ export default async function CustomerDetailPage({
 
       <CustomerPhotos memberId={customer.memberId} customerId={customer.id} />
 
-      <div className="space-y-2">
-        <h2 className="text-lg font-semibold">Activity</h2>
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-48">When</TableHead>
-                <TableHead>Message</TableHead>
-                <TableHead className="w-40">By</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {logs.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={3} className="h-20 text-center text-muted-foreground">
-                    No activity recorded.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                logs.map((log) => (
-                  <TableRow key={log.id}>
-                    <TableCell className="text-muted-foreground">{fmtDateTime(log.createdOn)}</TableCell>
-                    <TableCell>{log.message}</TableCell>
-                    <TableCell className="text-muted-foreground">{log.createdBy || "—"}</TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
+      <CustomerActivity customerId={customer.id} />
     </div>
   );
 }
