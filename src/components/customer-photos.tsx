@@ -1,16 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useCan } from "@/components/permissions-provider";
 import { Button } from "@/components/ui/button";
-import { Loader2, Trash2, Upload, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Folder,
+  Images,
+  Loader2,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB parts
-const CATEGORIES = ["Storefront", "Interior", "Equipment", "Compliance", "Other"];
 const IMAGE_RE = /\.(jpe?g|png|gif|webp)$/i;
+const ALL = "__all__";
 
-type Photo = { key: string; url: string };
+// Folders mirror the legacy Sunbelt app's categories (exact keys, so legacy-migrated
+// photos under {memberId}/{folder}/ line up). Display labels are friendlier.
+const LEGACY_FOLDERS: { key: string; label: string }[] = [
+  { key: "ColdVault", label: "ColdVault" },
+  { key: "DrPepper_BigRed", label: "Dr. Pepper & Big Red" },
+  { key: "Monster", label: "Monster" },
+  { key: "Redbull", label: "Redbull" },
+  { key: "SharedCooler", label: "Shared Cooler" },
+  { key: "Other", label: "Other" },
+];
 
 // Tolerate PascalCase/camelCase and raw-string responses from the file worker.
 function pick(obj: unknown, ...keys: string[]): string | undefined {
@@ -42,55 +60,122 @@ function friendlyName(original: string): string {
   return `${date}_${time}-${rand}-${safe}`;
 }
 
+// Key layout is {memberId}/{folder}/{file}. Files without a folder bucket into "Other".
+function folderOf(key: string): string {
+  const parts = key.split("/");
+  return parts.length >= 3 ? parts[1] : "Other";
+}
+function fileNameOf(key: string): string {
+  return key.split("/").pop() ?? key;
+}
+
 export function CustomerPhotos({ memberId }: { memberId: string }) {
   const canUpload = useCan("customer_data:create");
   const canDelete = useCan("customer_data:delete");
 
-  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [keys, setKeys] = useState<string[]>([]); // all image keys for this customer
+  const [urls, setUrls] = useState<Record<string, string>>({}); // key -> presigned URL
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [selected, setSelected] = useState<string>(ALL);
+  const [uploadTarget, setUploadTarget] = useState<string>(LEGACY_FOLDERS[0].key);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const loadPhotos = useCallback(async () => {
+  // One list call; folders + counts are derived from the key prefixes client-side.
+  const loadIndex = useCallback(async () => {
     try {
       const res = await fetch(`/api/files/List?filePath=${encodeURIComponent(memberId)}`, {
         cache: "no-store",
       });
       const body = res.ok ? await readJson(res) : [];
-      const keys = (Array.isArray(body) ? body : [])
-        .filter((p): p is string => typeof p === "string" && IMAGE_RE.test(p));
-
-      const resolved = await Promise.all(
-        keys.map(async (key) => {
-          try {
-            const r = await fetch(`/api/files/PreSignedUrl?filePath=${encodeURIComponent(key)}`);
-            const url = pick(await readJson(r), "url", "Url");
-            return url ? { key, url } : null;
-          } catch {
-            return null;
-          }
-        })
+      const imgKeys = (Array.isArray(body) ? body : []).filter(
+        (p): p is string => typeof p === "string" && IMAGE_RE.test(p)
       );
-      setPhotos(resolved.filter((p): p is Photo => p !== null));
+      // Names are timestamp-prefixed, so a descending sort is newest-first.
+      imgKeys.sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+      setKeys(imgKeys);
     } catch {
-      setPhotos([]);
+      setKeys([]);
     } finally {
       setLoading(false);
     }
   }, [memberId]);
 
   useEffect(() => {
-    // Load the gallery on mount. loadPhotos only setState()s after awaits, not
-    // synchronously, so the cascading-render concern this rule guards doesn't apply.
+    // loadIndex only setState()s after awaits, not synchronously.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadPhotos();
-  }, [loadPhotos]);
+    void loadIndex();
+  }, [loadIndex]);
 
-  async function uploadOne(file: File) {
+  const grouped = useMemo(() => {
+    const m: Record<string, string[]> = {};
+    for (const k of keys) (m[folderOf(k)] ??= []).push(k);
+    return m;
+  }, [keys]);
+
+  // Fixed legacy folders, plus any extra folder discovered in storage (never hide data).
+  const folders = useMemo(() => {
+    const list = [...LEGACY_FOLDERS];
+    const known = new Set(LEGACY_FOLDERS.map((f) => f.key));
+    for (const k of Object.keys(grouped)) if (!known.has(k)) list.push({ key: k, label: k });
+    return list;
+  }, [grouped]);
+
+  const visibleKeys = useMemo(
+    () => (selected === ALL ? keys : grouped[selected] ?? []),
+    [selected, keys, grouped]
+  );
+
+  // Resolve presigned URLs lazily for whatever folder is in view.
+  const visibleKey = visibleKeys.join("|");
+  useEffect(() => {
+    let active = true;
+    const missing = visibleKeys.filter((k) => !urls[k]);
+    if (missing.length === 0) return;
+    (async () => {
+      const entries = await Promise.all(
+        missing.map(async (key) => {
+          try {
+            const r = await fetch(`/api/files/PreSignedUrl?filePath=${encodeURIComponent(key)}`);
+            const url = pick(await readJson(r), "url", "Url");
+            return url ? ([key, url] as const) : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (!active) return;
+      setUrls((prev) => {
+        const next = { ...prev };
+        for (const e of entries) if (e) next[e[0]] = e[1];
+        return next;
+      });
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleKey]);
+
+  // Lightbox keyboard navigation (←/→ to move, Esc to close).
+  useEffect(() => {
+    if (lightbox === null) return;
+    function onKey(e: KeyboardEvent) {
+      const n = visibleKeys.length;
+      if (e.key === "Escape") setLightbox(null);
+      else if (e.key === "ArrowRight") setLightbox((i) => (i === null ? i : (i + 1) % n));
+      else if (e.key === "ArrowLeft") setLightbox((i) => (i === null ? i : (i - 1 + n) % n));
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox, visibleKeys.length]);
+
+  const effectiveTarget = selected === ALL ? uploadTarget : selected;
+
+  async function uploadOne(file: File, folder: string) {
     const contentType = file.type || "application/octet-stream";
-    let filePath = `${memberId}/${category}/${friendlyName(file.name)}`;
+    let filePath = `${memberId}/${folder}/${friendlyName(file.name)}`;
 
     const initRes = await fetch("/api/files/Multipart/Initiate", {
       method: "POST",
@@ -136,11 +221,12 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
 
   async function onFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
+    const folder = effectiveTarget;
     setUploading(true);
     let ok = 0;
     for (const file of Array.from(files)) {
       try {
-        await uploadOne(file);
+        await uploadOne(file, folder);
         ok++;
       } catch {
         toast.error(`Upload failed: ${file.name}`);
@@ -149,8 +235,9 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     setUploading(false);
     if (inputRef.current) inputRef.current.value = "";
     if (ok > 0) {
-      toast.success(`Uploaded ${ok} photo${ok > 1 ? "s" : ""}.`);
-      void loadPhotos();
+      toast.success(`Uploaded ${ok} photo${ok > 1 ? "s" : ""} to ${folderLabel(folder)}.`);
+      setSelected(folder); // jump to the folder we just filled
+      void loadIndex();
     }
   }
 
@@ -160,30 +247,46 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     }).catch(() => null);
     if (res?.ok) {
       toast.success("Photo deleted.");
-      setPhotos((prev) => prev.filter((p) => p.key !== key));
+      setKeys((prev) => prev.filter((k) => k !== key));
+      setLightbox(null);
     } else {
       toast.error("Failed to delete photo.");
     }
   }
 
+  function folderLabel(key: string): string {
+    return folders.find((f) => f.key === key)?.label ?? key;
+  }
+
+  const selectedLabel = selected === ALL ? "All photos" : folderLabel(selected);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Photos</h2>
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <Images className="size-5" /> Photos
+        </h2>
         {canUpload && (
           <div className="flex items-center gap-2">
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              disabled={uploading}
-              className="h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+            {selected === ALL ? (
+              <select
+                value={uploadTarget}
+                onChange={(e) => setUploadTarget(e.target.value)}
+                disabled={uploading}
+                aria-label="Upload to folder"
+                className="h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                {folders.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-sm text-muted-foreground">
+                Upload to <span className="font-medium text-foreground">{selectedLabel}</span>
+              </span>
+            )}
             <input
               ref={inputRef}
               type="file"
@@ -204,40 +307,86 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
         <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
           <Loader2 className="mr-2 animate-spin" /> Loading photos…
         </div>
-      ) : photos.length === 0 ? (
-        <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-          No photos yet for {memberId}.
-        </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-          {photos.map((p, i) => (
-            <div key={p.key} className="group relative overflow-hidden rounded-md border">
-              {/* Worker-presigned S3 URLs are remote + short-lived; use a plain img. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={p.url}
-                alt={p.key.split("/").pop() ?? "photo"}
-                className="aspect-square w-full cursor-pointer object-cover"
-                onClick={() => setLightbox(i)}
+        <div className="gap-4 md:grid md:grid-cols-[210px_minmax(0,1fr)]">
+          {/* LEFT: folders */}
+          <nav className="mb-3 flex gap-1 overflow-x-auto md:mb-0 md:flex-col md:overflow-visible">
+            <FolderButton
+              label="All photos"
+              count={keys.length}
+              active={selected === ALL}
+              all
+              onClick={() => {
+                setSelected(ALL);
+                setLightbox(null);
+              }}
+            />
+            {folders.map((f) => (
+              <FolderButton
+                key={f.key}
+                label={f.label}
+                count={grouped[f.key]?.length ?? 0}
+                active={selected === f.key}
+                onClick={() => {
+                  setSelected(f.key);
+                  setUploadTarget(f.key);
+                  setLightbox(null);
+                }}
               />
-              {canDelete && (
-                <button
-                  type="button"
-                  onClick={() => onDelete(p.key)}
-                  aria-label="Delete photo"
-                  className="absolute right-1 top-1 rounded-md bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              )}
+            ))}
+          </nav>
+
+          {/* RIGHT: images for the selected folder */}
+          <div className="min-w-0">
+            <div className="mb-2 text-sm text-muted-foreground">
+              {selectedLabel} · {visibleKeys.length} photo{visibleKeys.length === 1 ? "" : "s"}
             </div>
-          ))}
+            {visibleKeys.length === 0 ? (
+              <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+                No photos in {selectedLabel} for {memberId}.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                {visibleKeys.map((key, i) => (
+                  <div key={key} className="group relative overflow-hidden rounded-md border bg-muted/30">
+                    {urls[key] ? (
+                      <>
+                        {/* Worker-presigned S3 URLs are remote + short-lived; use a plain img. */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={urls[key]}
+                          alt={fileNameOf(key)}
+                          className="aspect-square w-full cursor-pointer object-cover"
+                          onClick={() => setLightbox(i)}
+                        />
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => onDelete(key)}
+                            aria-label="Delete photo"
+                            className="absolute right-1 top-1 rounded-md bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex aspect-square w-full items-center justify-center">
+                        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      {lightbox !== null && photos[lightbox] && (
+      {/* Lightbox with prev/next navigation */}
+      {lightbox !== null && visibleKeys[lightbox] && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4"
           onClick={() => setLightbox(null)}
         >
           <button
@@ -248,15 +397,76 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
           >
             <X />
           </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={photos[lightbox].url}
-            alt={photos[lightbox].key.split("/").pop() ?? "photo"}
-            className="max-h-full max-w-full rounded-md object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
+
+          {visibleKeys.length > 1 && (
+            <button
+              type="button"
+              aria-label="Previous photo"
+              className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white hover:bg-white/20 sm:left-6"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLightbox((i) => (i === null ? i : (i - 1 + visibleKeys.length) % visibleKeys.length));
+              }}
+            >
+              <ChevronLeft />
+            </button>
+          )}
+
+          <figure className="flex max-h-full max-w-full flex-col items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={urls[visibleKeys[lightbox]]}
+              alt={fileNameOf(visibleKeys[lightbox])}
+              className="max-h-[80vh] max-w-full rounded-md object-contain"
+            />
+            <figcaption className="max-w-full truncate text-xs text-white/70">
+              {fileNameOf(visibleKeys[lightbox])} · {lightbox + 1}/{visibleKeys.length}
+            </figcaption>
+          </figure>
+
+          {visibleKeys.length > 1 && (
+            <button
+              type="button"
+              aria-label="Next photo"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white hover:bg-white/20 sm:right-6"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLightbox((i) => (i === null ? i : (i + 1) % visibleKeys.length));
+              }}
+            >
+              <ChevronRight />
+            </button>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+function FolderButton({
+  label,
+  count,
+  active,
+  all,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  all?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-left text-sm transition-colors md:w-full ${
+        active ? "bg-brand/10 font-medium text-brand" : "hover:bg-muted"
+      }`}
+    >
+      {all ? <Images className="size-4 shrink-0" /> : <Folder className="size-4 shrink-0" />}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className={`text-xs ${active ? "text-brand" : "text-muted-foreground"}`}>{count}</span>
+    </button>
   );
 }
