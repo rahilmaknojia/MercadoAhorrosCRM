@@ -81,10 +81,17 @@ export default async function CustomerDetailPage({
     fetchArray<StoreMetadata>(`/api/storemetadata?filters=customerId|exact|${id}&pageSize=1`),
   ]);
 
+  // Equipment JSON for display + photo captions (stashed under a reserved key, which
+  // we extract and hide from the raw equipment view).
   let metaJson: string | null = null;
+  let photoCaptions: Record<string, string> = {};
   if (metadata[0]?.jsonData) {
     try {
-      metaJson = JSON.stringify(JSON.parse(metadata[0].jsonData), null, 2);
+      const parsed = JSON.parse(metadata[0].jsonData) as Record<string, unknown>;
+      photoCaptions = (parsed.__photoCaptions as Record<string, string>) ?? {};
+      const rest: Record<string, unknown> = { ...parsed };
+      delete rest.__photoCaptions;
+      metaJson = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : null;
     } catch {
       metaJson = metadata[0].jsonData;
     }
@@ -203,7 +210,11 @@ export default async function CustomerDetailPage({
         </CardContent>
       </Card>
 
-      <CustomerPhotos memberId={customer.memberId} customerId={customer.id} />
+      <CustomerPhotos
+        memberId={customer.memberId}
+        customerId={customer.id}
+        initialCaptions={photoCaptions}
+      />
 
       <CustomerActivity customerId={customer.id} />
     </div>

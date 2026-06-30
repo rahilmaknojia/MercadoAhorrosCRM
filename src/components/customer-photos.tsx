@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useCan } from "@/components/permissions-provider";
 import { prepareImage } from "@/lib/image-prep";
-import { logPhotoActivity } from "@/app/(app)/customers/photo-actions";
+import { logPhotoActivity, savePhotoCaption } from "@/app/(app)/customers/photo-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -50,7 +50,7 @@ const NEW_FOLDER = "__new__";
 // Bump this whenever the gallery logic changes; it's shown next to the Photos heading
 // so we can tell at a glance which build is actually deployed. "merge" = the build that
 // collapses an original with its size renditions into one tile.
-const GALLERY_BUILD = "g9-confirm";
+const GALLERY_BUILD = "g10-captions";
 const selectClass =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
@@ -157,12 +157,39 @@ function putWithProgress(
 
 type UploadJob = { id: string; name: string; pct: number; error?: boolean };
 
-export function CustomerPhotos({ memberId, customerId }: { memberId: string; customerId?: number }) {
+export function CustomerPhotos({
+  memberId,
+  customerId,
+  initialCaptions,
+}: {
+  memberId: string;
+  customerId?: number;
+  initialCaptions?: Record<string, string>;
+}) {
   const canUpload = useCan("customer_data:create");
   const canDelete = useCan("customer_data:delete");
+  const canEditCaption = useCan("customer_data:update");
+
+  const [captions, setCaptions] = useState<Record<string, string>>(initialCaptions ?? {});
 
   function audit(message: string) {
     if (customerId) void logPhotoActivity(customerId, message);
+  }
+
+  async function saveCaption(photoKey: string, text: string) {
+    if (!customerId) return;
+    const r = await savePhotoCaption(customerId, photoKey, text);
+    if (r.ok) {
+      setCaptions((prev) => {
+        const next = { ...prev };
+        if (text.trim()) next[photoKey] = text.trim();
+        else delete next[photoKey];
+        return next;
+      });
+      toast.success("Caption saved.");
+    } else {
+      toast.error(r.error ?? "Failed to save caption.");
+    }
   }
 
   const [keys, setKeys] = useState<string[]>([]); // all object keys for this customer
@@ -794,6 +821,7 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
                     key={p.source}
                     photo={p}
                     url={urls[thumbKey(p)]}
+                    caption={captions[p.source]}
                     selectMode={selectMode}
                     isSelected={selectedIds.has(p.source)}
                     canDelete={canDelete}
@@ -980,13 +1008,18 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
             )}
           </div>
 
-          {/* Caption */}
-          <div
-            className="truncate p-3 text-center text-xs text-white/70"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {current.name} · {lightbox! + 1}/{visiblePhotos.length} ·{" "}
-            {view === "original" ? "original" : `${view}px`}
+          {/* Caption (view/edit) + meta */}
+          <div className="space-y-2 p-3 text-center" onClick={(e) => e.stopPropagation()}>
+            <CaptionBar
+              key={current.source}
+              initial={captions[current.source] ?? ""}
+              canEdit={canEditCaption}
+              onSave={(text) => saveCaption(current.source, text)}
+            />
+            <div className="truncate text-xs text-white/70">
+              {current.name} · {lightbox! + 1}/{visiblePhotos.length} ·{" "}
+              {view === "original" ? "original" : `${view}px`}
+            </div>
           </div>
         </div>
       )}
@@ -1032,6 +1065,7 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
 function PhotoTile({
   photo,
   url,
+  caption,
   selectMode,
   isSelected,
   canDelete,
@@ -1042,6 +1076,7 @@ function PhotoTile({
 }: {
   photo: Photo;
   url?: string;
+  caption?: string;
   selectMode: boolean;
   isSelected: boolean;
   canDelete: boolean;
@@ -1111,12 +1146,57 @@ function PhotoTile({
               </button>
             )
           )}
+          {caption && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-linear-to-t from-black/70 to-transparent px-1.5 pb-1 pt-3 text-[11px] text-white">
+              {caption}
+            </div>
+          )}
         </>
       ) : (
         <div className="flex aspect-square w-full items-center justify-center">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
         </div>
       )}
+    </div>
+  );
+}
+
+function CaptionBar({
+  initial,
+  canEdit,
+  onSave,
+}: {
+  initial: string;
+  canEdit: boolean;
+  onSave: (text: string) => Promise<void> | void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  const [saving, setSaving] = useState(false);
+
+  if (!canEdit) {
+    return initial ? <p className="mx-auto max-w-lg text-sm text-white">{initial}</p> : null;
+  }
+  return (
+    <div className="mx-auto flex max-w-lg items-center gap-2">
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder="Add a caption…"
+        className="h-9 flex-1 rounded-md border border-white/20 bg-white/10 px-2 text-sm text-white placeholder:text-white/40 outline-none focus-visible:border-white/40"
+      />
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={saving || draft === initial}
+        onClick={async () => {
+          setSaving(true);
+          await onSave(draft);
+          setSaving(false);
+        }}
+      >
+        {saving && <Loader2 className="animate-spin" />}
+        Save
+      </Button>
     </div>
   );
 }
