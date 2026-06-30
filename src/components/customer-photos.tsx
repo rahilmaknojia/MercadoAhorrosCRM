@@ -17,7 +17,6 @@ import {
 
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB parts
 const IMAGE_RE = /\.(jpe?g|png|gif|webp)$/i;
-const ALL = "__all__";
 
 // Folders mirror the legacy Sunbelt app's categories (exact keys, so legacy-migrated
 // photos under {memberId}/{folder}/ line up). Display labels are friendlier.
@@ -77,8 +76,7 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
   const [urls, setUrls] = useState<Record<string, string>>({}); // key -> presigned URL
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [selected, setSelected] = useState<string>(ALL);
-  const [uploadTarget, setUploadTarget] = useState<string>(LEGACY_FOLDERS[0].key);
+  const [selected, setSelected] = useState<string>(""); // chosen folder; "" → auto-pick
   const [lightbox, setLightbox] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -122,10 +120,14 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     return list;
   }, [grouped]);
 
-  const visibleKeys = useMemo(
-    () => (selected === ALL ? keys : grouped[selected] ?? []),
-    [selected, keys, grouped]
+  // Folders-first, like the legacy explorer: no "All photos" flatten. Land on the first
+  // folder that has photos (else the first folder); the user switches folders to browse.
+  const firstWithPhotos = useMemo(
+    () => folders.find((f) => (grouped[f.key]?.length ?? 0) > 0)?.key,
+    [folders, grouped]
   );
+  const activeFolder = selected || firstWithPhotos || folders[0]?.key || "";
+  const visibleKeys = useMemo(() => grouped[activeFolder] ?? [], [grouped, activeFolder]);
 
   // Resolve presigned URLs lazily for whatever folder is in view.
   const visibleKey = visibleKeys.join("|");
@@ -170,8 +172,6 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [lightbox, visibleKeys.length]);
-
-  const effectiveTarget = selected === ALL ? uploadTarget : selected;
 
   async function uploadOne(file: File, folder: string) {
     const contentType = file.type || "application/octet-stream";
@@ -221,7 +221,8 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
 
   async function onFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
-    const folder = effectiveTarget;
+    const folder = activeFolder;
+    if (!folder) return;
     setUploading(true);
     let ok = 0;
     for (const file of Array.from(files)) {
@@ -258,7 +259,7 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     return folders.find((f) => f.key === key)?.label ?? key;
   }
 
-  const selectedLabel = selected === ALL ? "All photos" : folderLabel(selected);
+  const selectedLabel = activeFolder ? folderLabel(activeFolder) : "—";
 
   return (
     <div className="space-y-4">
@@ -268,25 +269,9 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
         </h2>
         {canUpload && (
           <div className="flex items-center gap-2">
-            {selected === ALL ? (
-              <select
-                value={uploadTarget}
-                onChange={(e) => setUploadTarget(e.target.value)}
-                disabled={uploading}
-                aria-label="Upload to folder"
-                className="h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              >
-                {folders.map((f) => (
-                  <option key={f.key} value={f.key}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span className="text-sm text-muted-foreground">
-                Upload to <span className="font-medium text-foreground">{selectedLabel}</span>
-              </span>
-            )}
+            <span className="text-sm text-muted-foreground">
+              Upload to <span className="font-medium text-foreground">{selectedLabel}</span>
+            </span>
             <input
               ref={inputRef}
               type="file"
@@ -311,25 +296,14 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
         <div className="gap-4 md:grid md:grid-cols-[210px_minmax(0,1fr)]">
           {/* LEFT: folders */}
           <nav className="mb-3 flex gap-1 overflow-x-auto md:mb-0 md:flex-col md:overflow-visible">
-            <FolderButton
-              label="All photos"
-              count={keys.length}
-              active={selected === ALL}
-              all
-              onClick={() => {
-                setSelected(ALL);
-                setLightbox(null);
-              }}
-            />
             {folders.map((f) => (
               <FolderButton
                 key={f.key}
                 label={f.label}
                 count={grouped[f.key]?.length ?? 0}
-                active={selected === f.key}
+                active={activeFolder === f.key}
                 onClick={() => {
                   setSelected(f.key);
-                  setUploadTarget(f.key);
                   setLightbox(null);
                 }}
               />
@@ -447,13 +421,11 @@ function FolderButton({
   label,
   count,
   active,
-  all,
   onClick,
 }: {
   label: string;
   count: number;
   active: boolean;
-  all?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -464,7 +436,7 @@ function FolderButton({
         active ? "bg-brand/10 font-medium text-brand" : "hover:bg-muted"
       }`}
     >
-      {all ? <Images className="size-4 shrink-0" /> : <Folder className="size-4 shrink-0" />}
+      <Folder className="size-4 shrink-0" />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       <span className={`text-xs ${active ? "text-brand" : "text-muted-foreground"}`}>{count}</span>
     </button>
