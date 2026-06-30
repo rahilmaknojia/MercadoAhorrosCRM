@@ -50,7 +50,7 @@ const NEW_FOLDER = "__new__";
 // Bump this whenever the gallery logic changes; it's shown next to the Photos heading
 // so we can tell at a glance which build is actually deployed. "merge" = the build that
 // collapses an original with its size renditions into one tile.
-const GALLERY_BUILD = "g7-merge";
+const GALLERY_BUILD = "g8-vfix";
 const selectClass =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
@@ -238,11 +238,18 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
     for (const key of keys) {
       const name = fileNameOf(key);
       const m = name.match(RENDITION_RE);
-      // Identity = the original key with its image extension stripped. Renditions live
-      // one level deeper ({original-without-ext}/wN.webp), so for a rendition we take its
-      // parent dir; for an original we strip the extension. Strip on both sides so they
-      // collapse into ONE photo regardless of whether the worker keeps the extension.
-      const source = stripImageExt(m ? key.slice(0, key.length - name.length - 1) : key);
+      // Identity = the original photo key with its extension stripped. The worker stores
+      // renditions under a "_v" container: {folder}/_v/{name}/wN.webp, while the original
+      // is {folder}/{name}.ext. So for a rendition, take its parent dir and drop the "_v"
+      // segment; for an original, just strip the extension. Both then resolve to
+      // {folder}/{name} and collapse into ONE photo.
+      let source: string;
+      if (m) {
+        const parent = key.slice(0, key.length - name.length - 1);
+        source = stripImageExt(parent.replace(/\/_v\/([^/]+)$/, "/$1"));
+      } else {
+        source = stripImageExt(key);
+      }
       let p = map.get(source);
       if (!p) {
         p = { source, folder: folderOf(source, memberId), name: fileNameOf(source), renditions: {} };
