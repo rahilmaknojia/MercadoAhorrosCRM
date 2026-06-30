@@ -6,8 +6,9 @@ import type { ReportPreset } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ReportView } from "@/components/report-view";
+import { ReportEmailForm } from "@/components/report-email-form";
 import { Can } from "@/components/permissions-provider";
-import { deleteReport, setPinned } from "../actions";
+import { deleteReport, setDashboardSize, setPinned } from "../actions";
 import { Download, Pencil, Pin, Trash2 } from "lucide-react";
 
 export default async function ReportDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -63,6 +64,20 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
                   <Pin /> {def.pinnedToDashboard ? "Unpin" : "Pin to dashboard"}
                 </Button>
               </form>
+              {def.pinnedToDashboard && (
+                <div className="flex items-center gap-1">
+                  <form action={setDashboardSize.bind(null, preset.id, "small")}>
+                    <Button type="submit" size="sm" variant={def.dashboardSize === "large" ? "ghost" : "secondary"}>
+                      Small
+                    </Button>
+                  </form>
+                  <form action={setDashboardSize.bind(null, preset.id, "large")}>
+                    <Button type="submit" size="sm" variant={def.dashboardSize === "large" ? "secondary" : "ghost"}>
+                      Large
+                    </Button>
+                  </form>
+                </div>
+              )}
               <Link href={`/reports/${preset.id}/edit`} className={buttonVariants({ variant: "outline", size: "sm" })}>
                 <Pencil /> Edit
               </Link>
@@ -80,6 +95,14 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
       </div>
 
       <ReportView definition={def} />
+
+      <Can permission="reports:update">
+        <ReportEmailForm
+          reportId={preset.id}
+          initialRecipients={def.emailRecipients ?? []}
+          initialFrequency={def.emailFrequency ?? "none"}
+        />
+      </Can>
     </div>
   );
 }

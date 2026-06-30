@@ -108,6 +108,9 @@ export type ReportDefinition = {
   series?: string; // secondary group for stacked bar charts
   aggregate?: string; // "count"
   pinnedToDashboard?: boolean;
+  dashboardSize?: "small" | "large"; // widget width on the dashboard
+  emailRecipients?: string[];
+  emailFrequency?: "none" | "daily" | "weekly";
 };
 
 export type ReportPreset = {

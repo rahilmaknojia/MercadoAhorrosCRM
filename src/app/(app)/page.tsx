@@ -51,7 +51,7 @@ export default async function DashboardPage() {
           </h2>
           <div className="grid gap-4 lg:grid-cols-2">
             {pinned.map((p) => (
-              <Card key={p.id}>
+              <Card key={p.id} className={p.def.dashboardSize === "large" ? "lg:col-span-2" : ""}>
                 <CardHeader>
                   <CardTitle className="text-base">
                     <Link href={`/reports/${p.id}`} className="hover:underline">
