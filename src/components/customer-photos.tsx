@@ -50,7 +50,7 @@ const NEW_FOLDER = "__new__";
 // Bump this whenever the gallery logic changes; it's shown next to the Photos heading
 // so we can tell at a glance which build is actually deployed. "merge" = the build that
 // collapses an original with its size renditions into one tile.
-const GALLERY_BUILD = "g8-vfix";
+const GALLERY_BUILD = "g9-confirm";
 const selectClass =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
@@ -177,6 +177,8 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirm, setConfirm] = useState<{ kind: "single" | "bulk"; photo?: Photo } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [view, setView] = useState<string>("1024"); // "256" | "512" | "1024" | "original"
   const [playing, setPlaying] = useState(false); // slideshow
   const [zoom, setZoom] = useState(1);
@@ -559,20 +561,6 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
     return results.some(Boolean);
   }
 
-  // Delete a single photo = the original AND every rendition object.
-  async function onDelete(p: Photo) {
-    const targets = photoKeys(p);
-    if (await deleteObjects(targets)) {
-      toast.success("Photo deleted.");
-      const removed = new Set(targets);
-      setKeys((prev) => prev.filter((k) => !removed.has(k)));
-      setLightbox(null);
-      audit(`Deleted a photo from ${folderLabel(p.folder)}.`);
-    } else {
-      toast.error("Failed to delete photo.");
-    }
-  }
-
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -582,19 +570,42 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
     });
   }
 
-  async function bulkDelete() {
-    const chosen = visiblePhotos.filter((p) => selectedIds.has(p.source));
-    if (chosen.length === 0) return;
-    const targets = chosen.flatMap(photoKeys);
-    if (await deleteObjects(targets)) {
-      toast.success(`Deleted ${chosen.length} photo${chosen.length > 1 ? "s" : ""}.`);
-      const removed = new Set(targets);
-      setKeys((prev) => prev.filter((k) => !removed.has(k)));
+  // Photos pending deletion + count for the confirmation dialog.
+  const confirmTargets =
+    confirm?.kind === "bulk"
+      ? visiblePhotos.filter((p) => selectedIds.has(p.source))
+      : confirm?.photo
+        ? [confirm.photo]
+        : [];
+
+  // Execute the confirmed delete. Removes each photo's folder-root original AND every
+  // variant under its _v container (photoKeys gathers them all).
+  async function performDelete() {
+    if (confirmTargets.length === 0) {
+      setConfirm(null);
+      return;
+    }
+    const isBulk = confirm?.kind === "bulk";
+    const targets = confirmTargets.flatMap(photoKeys);
+    setDeleting(true);
+    const ok = await deleteObjects(targets);
+    setDeleting(false);
+    setConfirm(null);
+    if (!ok) {
+      toast.error(isBulk ? "Failed to delete photos." : "Failed to delete photo.");
+      return;
+    }
+    const removed = new Set(targets);
+    setKeys((prev) => prev.filter((k) => !removed.has(k)));
+    setLightbox(null);
+    if (isBulk) {
       setSelectedIds(new Set());
       setSelectMode(false);
-      audit(`Deleted ${chosen.length} photo${chosen.length > 1 ? "s" : ""} from ${selectedLabel}.`);
+      toast.success(`Deleted ${confirmTargets.length} photo${confirmTargets.length > 1 ? "s" : ""}.`);
+      audit(`Deleted ${confirmTargets.length} photo${confirmTargets.length > 1 ? "s" : ""} from ${selectedLabel}.`);
     } else {
-      toast.error("Failed to delete photos.");
+      toast.success("Photo deleted.");
+      audit(`Deleted a photo from ${folderLabel(confirmTargets[0].folder)}.`);
     }
   }
 
@@ -750,7 +761,7 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
                       size="sm"
                       variant="destructive"
                       disabled={selectedIds.size === 0}
-                      onClick={() => void bulkDelete()}
+                      onClick={() => setConfirm({ kind: "bulk" })}
                     >
                       <Trash2 /> Delete
                     </Button>
@@ -789,7 +800,7 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
                     onRequest={requestThumb}
                     onOpen={() => showAt(i)}
                     onToggle={() => toggleSelect(p.source)}
-                    onDelete={() => onDelete(p)}
+                    onDelete={() => setConfirm({ kind: "single", photo: p })}
                   />
                 ))}
               </div>
@@ -888,7 +899,7 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
                   type="button"
                   aria-label="Delete photo"
                   className="ml-1 rounded-md bg-white/10 p-2 hover:bg-white/20"
-                  onClick={() => onDelete(current)}
+                  onClick={() => setConfirm({ kind: "single", photo: current })}
                 >
                   <Trash2 className="size-4" />
                 </button>
@@ -976,6 +987,40 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
           >
             {current.name} · {lightbox! + 1}/{visiblePhotos.length} ·{" "}
             {view === "original" ? "original" : `${view}px`}
+          </div>
+        </div>
+      )}
+
+      {/* Permanent-delete confirmation (single or bulk) */}
+      {confirm && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
+          onClick={() => !deleting && setConfirm(null)}
+        >
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            className="w-full max-w-sm rounded-lg border bg-background p-6 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="flex items-center gap-2 text-base font-semibold">
+              <Trash2 className="size-4 text-destructive" />
+              Delete {confirmTargets.length} photo{confirmTargets.length === 1 ? "" : "s"}?
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              This <span className="font-medium text-foreground">permanently</span> deletes the
+              {confirmTargets.length === 1 ? " photo" : ` ${confirmTargets.length} photos`} and all
+              image sizes (variants) from storage. This action cannot be undone.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setConfirm(null)} disabled={deleting}>
+                No, cancel
+              </Button>
+              <Button variant="destructive" onClick={() => void performDelete()} disabled={deleting}>
+                {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                Yes, delete
+              </Button>
+            </div>
           </div>
         </div>
       )}
