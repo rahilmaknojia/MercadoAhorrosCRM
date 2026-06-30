@@ -48,3 +48,15 @@ export async function deleteMasterDataItem(id: number): Promise<MdResult> {
   revalidatePath("/settings/master-data");
   return { ok: true };
 }
+
+// Fold `sourceId` into `targetId`: linked customers are repointed to the target,
+// then the source is deleted.
+export async function mergeMasterDataItem(sourceId: number, targetId: number): Promise<MdResult> {
+  const res = await apiFetch(`/api/masterdata/${sourceId}/merge?into=${targetId}`, {
+    method: "POST",
+  }).catch(() => null);
+  if (!res) return { ok: false, error: "Network error." };
+  if (!res.ok) return { ok: false, error: await readError(res, "Could not merge item.") };
+  revalidatePath("/settings/master-data");
+  return { ok: true };
+}
