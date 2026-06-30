@@ -183,8 +183,11 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
       const entries = await mapLimit(missing, 5, async (key) => {
         try {
           const r = await fetch(`/api/files/PreSignedUrl?filePath=${encodeURIComponent(key)}`);
+          if (!r.ok) return null;
           const url = pick(await readJson(r), "url", "Url");
-          return url ? ([key, url] as const) : null;
+          // The worker can return a plain error string (e.g. "Invalid API Key"); only
+          // accept an actual http(s) URL so it never becomes a bogus <img src>.
+          return url && /^https?:\/\//i.test(url) ? ([key, url] as const) : null;
         } catch {
           return null;
         }
@@ -239,7 +242,10 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
         );
         if (!urlRes.ok) throw new Error("Failed to get part URL");
         const presigned = pick(await readJson(urlRes), "url", "Url");
-        if (!presigned) throw new Error("No part URL");
+        // Guard against the worker returning an error string (e.g. "Invalid API Key").
+        if (!presigned || !/^https?:\/\//i.test(presigned)) {
+          throw new Error("File worker did not return a valid upload URL (check API key).");
+        }
 
         const start = (partNumber - 1) * CHUNK_SIZE;
         const chunk = file.slice(start, Math.min(start + CHUNK_SIZE, file.size));
