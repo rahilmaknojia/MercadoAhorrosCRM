@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Can } from "@/components/permissions-provider";
+import { CustomerPhotos } from "@/components/customer-photos";
 import { Pencil } from "lucide-react";
 
 function statusVariant(status: string): "default" | "secondary" | "outline" {
@@ -218,6 +219,8 @@ export default async function CustomerDetailPage({
           )}
         </CardContent>
       </Card>
+
+      <CustomerPhotos memberId={customer.memberId} />
 
       <div className="space-y-2">
         <h2 className="text-lg font-semibold">Activity</h2>
