@@ -128,6 +128,32 @@ function thumbKey(p: Photo): string {
   return p.renditions[256] ?? p.renditions[512] ?? p.renditions[1024] ?? p.original ?? p.source;
 }
 
+// PUT a chunk to S3 via XHR so we get upload progress; returns the part ETag.
+function putWithProgress(
+  url: string,
+  body: Blob,
+  contentType: string,
+  onProgress: (loaded: number) => void
+): Promise<string | undefined> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.getResponseHeader("ETag")?.replaceAll('"', "") ?? undefined);
+      } else {
+        reject(new Error("S3 PUT failed"));
+      }
+    };
+    xhr.onerror = () => reject(new Error("S3 PUT failed"));
+    xhr.send(body);
+  });
+}
+
+type UploadJob = { id: string; name: string; pct: number; error?: boolean };
+
 export function CustomerPhotos({ memberId }: { memberId: string }) {
   const canUpload = useCan("customer_data:create");
   const canDelete = useCan("customer_data:delete");
@@ -136,6 +162,8 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
   const [urls, setUrls] = useState<Record<string, string>>({}); // object key -> presigned URL
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploads, setUploads] = useState<UploadJob[]>([]); // per-file progress
+  const [dragOver, setDragOver] = useState(false);
   const [selected, setSelected] = useState<string>(""); // chosen folder; "" → auto-pick
   const [uploadFolder, setUploadFolder] = useState<string>("");
   const [newFolderName, setNewFolderName] = useState("");
@@ -170,6 +198,29 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadIndex();
   }, [loadIndex]);
+
+  // Keep a stable handle to the latest onFiles for window-level listeners (paste).
+  const onFilesRef = useRef<(files: FileList | null) => Promise<void>>(() => Promise.resolve());
+  useEffect(() => {
+    onFilesRef.current = onFiles;
+  });
+
+  // Paste an image from the clipboard to upload it into the selected folder.
+  useEffect(() => {
+    if (!canUpload) return;
+    function onPaste(e: ClipboardEvent) {
+      const imgs = Array.from(e.clipboardData?.items ?? [])
+        .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+        .map((it) => it.getAsFile())
+        .filter((f): f is File => !!f);
+      if (imgs.length === 0) return;
+      const dt = new DataTransfer();
+      imgs.forEach((f) => dt.items.add(f));
+      void onFilesRef.current(dt.files);
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [canUpload]);
 
   // Collapse the raw object keys into source photos (original + renditions).
   const photos = useMemo(() => {
@@ -360,7 +411,7 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lightbox, visiblePhotos]);
 
-  async function uploadOne(file: File, folder: string) {
+  async function uploadOne(file: File, folder: string, onProgress?: (loaded: number) => void) {
     const contentType = file.type || "application/octet-stream";
     let filePath = `${memberId}/${folder}/${friendlyName(file.name)}`;
 
@@ -376,6 +427,8 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     if (!uploadId) throw new Error("No upload id");
 
     const totalParts = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+    const loadedPerPart = new Array<number>(totalParts).fill(0);
+    const report = () => onProgress?.(loadedPerPart.reduce((a, b) => a + b, 0));
     const parts = await Promise.all(
       Array.from({ length: totalParts }, (_, i) => i + 1).map(async (partNumber) => {
         const urlRes = await fetch(
@@ -388,13 +441,10 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
         }
         const start = (partNumber - 1) * CHUNK_SIZE;
         const chunk = file.slice(start, Math.min(start + CHUNK_SIZE, file.size));
-        const put = await fetch(presigned, {
-          method: "PUT",
-          headers: { "Content-Type": contentType },
-          body: chunk,
+        const eTag = await putWithProgress(presigned, chunk, contentType, (loaded) => {
+          loadedPerPart[partNumber - 1] = loaded;
+          report();
         });
-        if (!put.ok) throw new Error("S3 PUT failed");
-        const eTag = put.headers.get("ETag")?.replaceAll('"', "");
         return { PartNumber: partNumber, ETag: eTag };
       })
     );
@@ -414,20 +464,36 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
       if (inputRef.current) inputRef.current.value = "";
       return;
     }
+    const list = Array.from(files);
+    const jobs: UploadJob[] = list.map((f, i) => ({
+      id: `${Date.now()}-${i}-${f.name}`,
+      name: f.name,
+      pct: 0,
+    }));
+    setUploads(jobs);
     setUploading(true);
     let ok = 0;
-    for (const file of Array.from(files)) {
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i];
+      const id = jobs[i].id;
       try {
         // Auto-orient / downscale / HEIC->JPEG before upload (best-effort).
         const prepared = await prepareImage(file);
-        await uploadOne(prepared, folder);
+        await uploadOne(prepared, folder, (loaded) => {
+          const pct = Math.min(99, Math.round((loaded / Math.max(1, prepared.size)) * 100));
+          setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, pct } : u)));
+        });
+        setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, pct: 100 } : u)));
         ok++;
       } catch {
+        setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, error: true } : u)));
         toast.error(`Upload failed: ${file.name}`);
       }
     }
     setUploading(false);
+    window.setTimeout(() => setUploads([]), 1500);
     if (inputRef.current) inputRef.current.value = "";
+    if (cameraRef.current) cameraRef.current.value = "";
     if (ok > 0) {
       toast.success(`Uploaded ${ok} photo${ok > 1 ? "s" : ""} to ${folder}.`);
       setSelected(norm(folder)); // jump to that folder (normalized identity)
@@ -525,6 +591,25 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
         )}
       </div>
 
+      {uploads.length > 0 && (
+        <div className="space-y-1.5">
+          {uploads.map((u) => (
+            <div key={u.id} className="flex items-center gap-2 text-xs">
+              <span className="w-40 truncate text-muted-foreground">{u.name}</span>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={`h-full rounded-full transition-all ${u.error ? "bg-destructive" : "bg-brand"}`}
+                  style={{ width: `${u.error ? 100 : u.pct}%` }}
+                />
+              </div>
+              <span className="w-10 text-right tabular-nums text-muted-foreground">
+                {u.error ? "fail" : `${u.pct}%`}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
           <Loader2 className="mr-2 animate-spin" /> Loading photos…
@@ -546,9 +631,32 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
             ))}
           </nav>
 
-          <div className="min-w-0">
+          <div
+            className={`min-w-0 rounded-lg transition-shadow ${
+              dragOver ? "ring-2 ring-brand ring-offset-2 ring-offset-background" : ""
+            }`}
+            onDragOver={
+              canUpload
+                ? (e) => {
+                    e.preventDefault();
+                    setDragOver(true);
+                  }
+                : undefined
+            }
+            onDragLeave={canUpload ? () => setDragOver(false) : undefined}
+            onDrop={
+              canUpload
+                ? (e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    void onFiles(e.dataTransfer.files);
+                  }
+                : undefined
+            }
+          >
             <div className="mb-2 text-sm text-muted-foreground">
               {selectedLabel} · {visiblePhotos.length} photo{visiblePhotos.length === 1 ? "" : "s"}
+              {canUpload && <span className="ml-2 hidden sm:inline">· drop or paste images to upload</span>}
             </div>
             {visiblePhotos.length === 0 ? (
               <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
