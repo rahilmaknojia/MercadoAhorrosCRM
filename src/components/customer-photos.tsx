@@ -307,25 +307,34 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
     setPan({ x: 0, y: 0 });
   }, [currentKey]);
 
-  function openLightbox(i: number) {
-    setLightbox(i);
-    const p = visiblePhotos[i];
+  function defaultViewFor(p?: Photo): string {
     const sizes = p ? Object.keys(p.renditions).map(Number) : [];
-    setView(sizes.includes(1024) ? "1024" : sizes.length ? String(Math.max(...sizes)) : "original");
+    return sizes.includes(1024) ? "1024" : sizes.length ? String(Math.max(...sizes)) : "original";
+  }
+
+  // Open or navigate the lightbox. ALWAYS (re)default to 1024 so opening and paging
+  // never load the heavy original — that only happens when the user taps "View original".
+  function showAt(i: number) {
+    const n = visiblePhotos.length;
+    if (n === 0) return;
+    const idx = ((i % n) + n) % n;
+    setLightbox(idx);
+    setView(defaultViewFor(visiblePhotos[idx]));
   }
 
   // Keyboard nav.
   useEffect(() => {
     if (lightbox === null) return;
+    const at = lightbox;
     function onKey(e: KeyboardEvent) {
-      const n = visiblePhotos.length;
       if (e.key === "Escape") setLightbox(null);
-      else if (e.key === "ArrowRight") setLightbox((i) => (i === null ? i : (i + 1) % n));
-      else if (e.key === "ArrowLeft") setLightbox((i) => (i === null ? i : (i - 1 + n) % n));
+      else if (e.key === "ArrowRight") showAt(at + 1);
+      else if (e.key === "ArrowLeft") showAt(at - 1);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lightbox, visiblePhotos.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lightbox, visiblePhotos]);
 
   async function uploadOne(file: File, folder: string) {
     const contentType = file.type || "application/octet-stream";
@@ -519,7 +528,7 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
                             alt={p.name}
                             loading="lazy"
                             className="aspect-square w-full cursor-pointer object-cover"
-                            onClick={() => openLightbox(i)}
+                            onClick={() => showAt(i)}
                           />
                           {canDelete && (
                             <button
@@ -652,9 +661,7 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
                 type="button"
                 aria-label="Previous photo"
                 className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white hover:bg-white/20 sm:left-6"
-                onClick={() =>
-                  setLightbox((i) => (i === null ? i : (i - 1 + visiblePhotos.length) % visiblePhotos.length))
-                }
+                onClick={() => showAt((lightbox ?? 0) - 1)}
               >
                 <ChevronLeft />
               </button>
@@ -681,7 +688,7 @@ export function CustomerPhotos({ memberId }: { memberId: string }) {
                 type="button"
                 aria-label="Next photo"
                 className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white hover:bg-white/20 sm:right-6"
-                onClick={() => setLightbox((i) => (i === null ? i : (i + 1) % visiblePhotos.length))}
+                onClick={() => showAt((lightbox ?? 0) + 1)}
               >
                 <ChevronRight />
               </button>
