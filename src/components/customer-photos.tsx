@@ -92,6 +92,13 @@ function fileNameOf(key: string): string {
   return key.split("/").pop() ?? key;
 }
 
+// The worker stores renditions under the original key WITHOUT its extension
+// (original "foo.png" -> renditions "foo/w512.webp"). Strip the image extension so an
+// original and its rendition group resolve to the same photo identity.
+function stripImageExt(key: string): string {
+  return key.replace(/\.(jpe?g|png|gif|webp|heic|heif)$/i, "");
+}
+
 // Folder identity is case-insensitive (merge "storefront" / "Storefront").
 function norm(s: string): string {
   return s.trim().toLowerCase();
@@ -227,7 +234,8 @@ export function CustomerPhotos({ memberId, customerId }: { memberId: string; cus
     for (const key of keys) {
       const name = fileNameOf(key);
       const m = name.match(RENDITION_RE);
-      const source = m ? key.slice(0, key.length - name.length - 1) : key;
+      // Rendition → its parent dir; original → the key minus its image extension.
+      const source = m ? key.slice(0, key.length - name.length - 1) : stripImageExt(key);
       let p = map.get(source);
       if (!p) {
         p = { source, folder: folderOf(source, memberId), name: fileNameOf(source), renditions: {} };
