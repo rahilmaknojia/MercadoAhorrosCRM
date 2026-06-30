@@ -36,6 +36,7 @@ export function ReportBuilder({
     def?.visualization ?? "table"
   );
   const [groupBy, setGroupBy] = useState(def?.groupBy ?? GROUP_FIELDS[0].value);
+  const [series, setSeries] = useState(def?.series ?? "");
   const [columns, setColumns] = useState<string[]>(
     def?.columns ?? ["memberId", "businessName", "storeCity", "storeState", "status"]
   );
@@ -57,6 +58,7 @@ export function ReportBuilder({
       columns: visualization === "table" ? columns : undefined,
       visualization,
       groupBy: visualization === "table" ? undefined : groupBy,
+      series: visualization === "bar" && series ? series : undefined,
       aggregate: "count",
       pinnedToDashboard: def?.pinnedToDashboard ?? false,
     };
@@ -114,16 +116,31 @@ export function ReportBuilder({
         </div>
 
         {visualization !== "table" ? (
-          <div className="space-y-1">
-            <Label htmlFor="groupBy">Group by</Label>
-            <select id="groupBy" className={selectClass} value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
-              {GROUP_FIELDS.map((g) => (
-                <option key={g.value} value={g.value}>
-                  {g.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <>
+            <div className="space-y-1">
+              <Label htmlFor="groupBy">Group by</Label>
+              <select id="groupBy" className={selectClass} value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
+                {GROUP_FIELDS.map((g) => (
+                  <option key={g.value} value={g.value}>
+                    {g.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {visualization === "bar" && (
+              <div className="space-y-1">
+                <Label htmlFor="series">Series (stacked, optional)</Label>
+                <select id="series" className={selectClass} value={series} onChange={(e) => setSeries(e.target.value)}>
+                  <option value="">None</option>
+                  {GROUP_FIELDS.filter((g) => g.value !== groupBy).map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </>
         ) : (
           <div className="space-y-1">
             <Label>Columns</Label>

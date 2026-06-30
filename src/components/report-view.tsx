@@ -6,6 +6,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Legend,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -13,8 +14,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchAggregate, fetchTable, fieldLabel } from "@/lib/report";
-import type { AggregateBucket, Customer, ReportDefinition } from "@/lib/types";
+import { fetchAggregate, fetchAggregate2d, fetchTable, fieldLabel } from "@/lib/report";
+import type { AggregateBucket, Bucket2d, Customer, ReportDefinition } from "@/lib/types";
 import {
   Table,
   TableBody,
@@ -45,6 +46,9 @@ export function ReportView({ definition }: { definition: ReportDefinition }) {
   const [rows, setRows] = useState<Customer[]>([]);
   const [total, setTotal] = useState(0);
   const [buckets, setBuckets] = useState<AggregateBucket[]>([]);
+  const [buckets2d, setBuckets2d] = useState<Bucket2d[]>([]);
+
+  const isStacked = viz === "bar" && !!definition.series;
 
   // Re-run whenever the definition changes.
   const key = JSON.stringify(definition);
@@ -61,6 +65,10 @@ export function ReportView({ definition }: { definition: ReportDefinition }) {
           if (!active) return;
           setRows(res.rows);
           setTotal(res.total);
+        } else if (isStacked) {
+          const b = await fetchAggregate2d(definition);
+          if (!active) return;
+          setBuckets2d(b);
         } else {
           const b = await fetchAggregate(definition);
           if (!active) return;
@@ -101,6 +109,34 @@ export function ReportView({ definition }: { definition: ReportDefinition }) {
         <div className="mt-1 text-sm text-muted-foreground">
           matching records{definition.groupBy ? ` · grouped by ${fieldLabel(definition.groupBy)}` : ""}
         </div>
+      </div>
+    );
+  }
+
+  if (isStacked) {
+    if (buckets2d.length === 0) {
+      return <p className="text-sm text-muted-foreground">No data for this report.</p>;
+    }
+    const seriesKeys = Array.from(new Set(buckets2d.flatMap((b) => b.series.map((s) => s.key))));
+    const data = buckets2d.map((b) => {
+      const row: Record<string, string | number> = { name: b.key };
+      for (const k of seriesKeys) row[k] = b.series.find((s) => s.key === k)?.count ?? 0;
+      return row;
+    });
+    return (
+      <div className="h-80 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+            <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+            <Tooltip />
+            <Legend />
+            {seriesKeys.map((k, i) => (
+              <Bar key={k} dataKey={k} stackId="a" fill={COLORS[i % COLORS.length]} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     );
   }

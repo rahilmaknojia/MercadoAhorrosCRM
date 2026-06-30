@@ -1,4 +1,4 @@
-import type { AggregateBucket, Customer, ReportDefinition } from "@/lib/types";
+import type { AggregateBucket, Bucket2d, Customer, ReportDefinition } from "@/lib/types";
 
 // Fields available for filtering / table columns.
 export const CUSTOMER_FIELDS = [
@@ -34,6 +34,8 @@ export const GROUP_FIELDS = [
   { value: "district", label: "District" },
   { value: "zoneManager", label: "Zone manager" },
   { value: "storeGroup", label: "Store group" },
+  { value: "dateJoined", label: "Date joined (by month)" },
+  { value: "createdOn", label: "Created (by month)" },
 ] as const;
 
 export function fieldLabel(value: string): string {
@@ -85,4 +87,15 @@ export async function fetchAggregate(def: ReportDefinition): Promise<AggregateBu
   });
   if (!res.ok) throw new Error(`Failed to run report (${res.status}).`);
   return (await res.json()) as AggregateBucket[];
+}
+
+export async function fetchAggregate2d(def: ReportDefinition): Promise<Bucket2d[]> {
+  const p = buildParams(def);
+  p.set("groupBy", def.groupBy || "status");
+  p.set("series", def.series || "status");
+  const res = await fetch(`/api/report-data/reports/customers/aggregate-2d?${p.toString()}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Failed to run report (${res.status}).`);
+  return (await res.json()) as Bucket2d[];
 }

@@ -105,6 +105,7 @@ export type ReportDefinition = {
   ascending?: boolean;
   visualization?: ReportVisualization;
   groupBy?: string;
+  series?: string; // secondary group for stacked bar charts
   aggregate?: string; // "count"
   pinnedToDashboard?: boolean;
 };
@@ -120,6 +121,7 @@ export type ReportPreset = {
 };
 
 export type AggregateBucket = { key: string; count: number };
+export type Bucket2d = { key: string; series: AggregateBucket[] };
 
 // The .NET API returns the items as a JSON array and pagination metadata in the
 // X-Pagination response header.
