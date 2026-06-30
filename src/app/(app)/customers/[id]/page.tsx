@@ -93,9 +93,9 @@ export default async function CustomerDetailPage({
   // Activity logs (newest first) and store metadata for this customer.
   const [logs, metadata] = await Promise.all([
     fetchArray<CustomerLog>(
-      `/api/customerlogs?filters=customerId|eq|${id}&sortField=createdOn&ascending=false&pageSize=50`
+      `/api/customerlogs?filters=customerId|exact|${id}&sortField=createdOn&ascending=false&pageSize=50`
     ),
-    fetchArray<StoreMetadata>(`/api/storemetadata?filters=customerId|eq|${id}&pageSize=1`),
+    fetchArray<StoreMetadata>(`/api/storemetadata?filters=customerId|exact|${id}&pageSize=1`),
   ]);
 
   let metaJson: string | null = null;
