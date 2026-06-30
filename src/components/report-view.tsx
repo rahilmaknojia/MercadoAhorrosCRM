@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Bar,
   BarChart,
@@ -39,8 +40,26 @@ const COLORS = [
 
 const DEFAULT_COLUMNS = ["memberId", "businessName", "storeCity", "storeState", "status"];
 
+const DATE_GROUP_FIELDS = new Set(["dateJoined", "createdOn"]);
+
 export function ReportView({ definition }: { definition: ReportDefinition }) {
+  const router = useRouter();
   const viz = definition.visualization ?? "table";
+
+  // Build a drill-through link to the filtered customer list for a clicked segment.
+  // Skipped for date buckets (can't eq-filter a month) and the "(none)" bucket.
+  function drillTo(groupKey: string, seriesKey?: string) {
+    const gb = definition.groupBy;
+    if (!gb || DATE_GROUP_FIELDS.has(gb) || groupKey === "(none)") return;
+    const p = new URLSearchParams();
+    (definition.filters ?? []).forEach((f) => p.append("filters", f));
+    p.append("filters", `${gb}|exact|${groupKey}`);
+    if (seriesKey && definition.series && seriesKey !== "(none)") {
+      p.append("filters", `${definition.series}|exact|${seriesKey}`);
+    }
+    (definition.metadataFilters ?? []).forEach((f) => p.append("meta", f));
+    router.push(`/customers?${p.toString()}`);
+  }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<Customer[]>([]);
@@ -133,7 +152,14 @@ export function ReportView({ definition }: { definition: ReportDefinition }) {
             <Tooltip />
             <Legend />
             {seriesKeys.map((k, i) => (
-              <Bar key={k} dataKey={k} stackId="a" fill={COLORS[i % COLORS.length]} />
+              <Bar
+                key={k}
+                dataKey={k}
+                stackId="a"
+                fill={COLORS[i % COLORS.length]}
+                cursor="pointer"
+                onClick={(d) => drillTo(String((d as { name?: string }).name ?? ""), k)}
+              />
             ))}
           </BarChart>
         </ResponsiveContainer>
@@ -155,7 +181,12 @@ export function ReportView({ definition }: { definition: ReportDefinition }) {
               <XAxis dataKey="name" tick={{ fontSize: 12 }} />
               <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
               <Tooltip />
-              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+              <Bar
+                dataKey="value"
+                radius={[4, 4, 0, 0]}
+                cursor="pointer"
+                onClick={(d) => drillTo(String((d as { name?: string }).name ?? ""))}
+              >
                 {data.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
@@ -164,7 +195,15 @@ export function ReportView({ definition }: { definition: ReportDefinition }) {
           ) : (
             <PieChart>
               <Tooltip />
-              <Pie data={data} dataKey="value" nameKey="name" outerRadius={120} label>
+              <Pie
+                data={data}
+                dataKey="value"
+                nameKey="name"
+                outerRadius={120}
+                label
+                cursor="pointer"
+                onClick={(d) => drillTo(String((d as { name?: string }).name ?? ""))}
+              >
                 {data.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}

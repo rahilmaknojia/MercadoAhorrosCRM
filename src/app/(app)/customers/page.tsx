@@ -24,11 +24,15 @@ function statusVariant(status: string): "default" | "secondary" | "outline" {
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; meta?: string }>;
+  searchParams: Promise<{ q?: string; meta?: string; filters?: string | string[] }>;
 }) {
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
   const meta = (sp.meta ?? "").trim();
+  // Generic typed filters (field|op|value), e.g. from a report drill-through.
+  const drillFilters = (Array.isArray(sp.filters) ? sp.filters : sp.filters ? [sp.filters] : [])
+    .map((f) => f.trim())
+    .filter(Boolean);
 
   const params = new URLSearchParams({
     pageNumber: "1",
@@ -37,6 +41,7 @@ export default async function CustomersPage({
     ascending: "true",
   });
   if (q) params.append("filters", `businessName|contains|${q}`);
+  drillFilters.forEach((f) => params.append("filters", f));
   if (meta) params.append("metadataFilters", meta);
 
   let customers: Customer[] = [];
@@ -95,6 +100,23 @@ export default async function CustomersPage({
           </Link>
         )}
       </form>
+
+      {drillFilters.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Filtered:</span>
+          {drillFilters.map((f, i) => {
+            const [field, op, ...rest] = f.split("|");
+            return (
+              <Badge key={i} variant="secondary">
+                {field} {op} {rest.join("|")}
+              </Badge>
+            );
+          })}
+          <Link href="/customers" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+            Clear
+          </Link>
+        </div>
+      )}
 
       {error ? (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">

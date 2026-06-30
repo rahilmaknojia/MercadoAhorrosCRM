@@ -171,7 +171,7 @@ export function ReportBuilder({
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => setFilters((p) => [...p, { field: CUSTOMER_FIELDS[0].value, operator: "eq", value: "" }])}
+              onClick={() => setFilters((p) => [...p, { field: CUSTOMER_FIELDS[0].value, operator: "exact", value: "" }])}
             >
               <Plus /> Add
             </Button>

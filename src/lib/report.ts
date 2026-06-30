@@ -16,13 +16,11 @@ export const CUSTOMER_FIELDS = [
   { value: "storePhone", label: "Phone" },
 ] as const;
 
+// Operators supported by the API's typed dynamic filter (EntityQueryExtensions).
 export const FILTER_OPERATORS = [
-  { value: "eq", label: "equals" },
+  { value: "exact", label: "equals" },
   { value: "contains", label: "contains" },
-  { value: "gt", label: "greater than" },
-  { value: "gte", label: "greater or equal" },
-  { value: "lt", label: "less than" },
-  { value: "lte", label: "less or equal" },
+  { value: "startswith", label: "starts with" },
 ] as const;
 
 // Fields the API can group by (mirrors CustomerService.GroupableFields).
