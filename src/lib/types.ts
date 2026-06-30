@@ -28,6 +28,27 @@ export type AdminUser = {
 export const APP_ROLES = ["owner", "admin", "staff", "user"] as const;
 export type AppRole = (typeof APP_ROLES)[number];
 
+// A managed territory/master-data lookup value (region/district/zone/manager/group).
+export type MasterDataItem = {
+  id: number;
+  type: string;
+  name: string;
+  displayOrder: number;
+  isActive: boolean;
+  createdOn?: string;
+  createdBy?: string;
+  modifiedOn?: string | null;
+};
+
+// type = API master-data type; field = the matching Customer string field.
+export const MASTER_DATA_TYPES = [
+  { type: "region", label: "Regions", field: "region" },
+  { type: "district", label: "Districts", field: "district" },
+  { type: "zone", label: "Zones", field: "zoneNo" },
+  { type: "zoneManager", label: "Zone managers", field: "zoneManager" },
+  { type: "storeGroup", label: "Store groups", field: "storeGroup" },
+] as const;
+
 export type CustomerStatus = "Active" | "Pending" | "Inactive";
 
 export type Customer = {

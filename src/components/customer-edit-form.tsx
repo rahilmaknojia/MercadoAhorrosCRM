@@ -15,20 +15,37 @@ function Field({
   defaultValue,
   type = "text",
   required = false,
+  suggestions,
 }: {
   name: string;
   label: string;
   defaultValue?: string | null;
   type?: string;
   required?: boolean;
+  suggestions?: string[];
 }) {
+  const listId = suggestions?.length ? `${name}-list` : undefined;
   return (
     <div className="space-y-1">
       <Label htmlFor={name}>
         {label}
         {required && <span className="text-destructive"> *</span>}
       </Label>
-      <Input id={name} name={name} type={type} defaultValue={defaultValue ?? ""} required={required} />
+      <Input
+        id={name}
+        name={name}
+        type={type}
+        defaultValue={defaultValue ?? ""}
+        required={required}
+        list={listId}
+      />
+      {listId && (
+        <datalist id={listId}>
+          {suggestions!.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      )}
     </div>
   );
 }
@@ -49,9 +66,16 @@ function dateValue(iso?: string | null): string {
   return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
 }
 
-export function CustomerEditForm({ customer }: { customer: Customer }) {
+export function CustomerEditForm({
+  customer,
+  suggestions,
+}: {
+  customer: Customer;
+  suggestions?: Partial<Record<string, string[]>>;
+}) {
   const action = updateCustomer.bind(null, String(customer.id));
   const [state, formAction, pending] = useActionState<EditState, FormData>(action, {});
+  const s = suggestions ?? {};
 
   return (
     <form action={formAction} className="space-y-8">
@@ -81,11 +105,11 @@ export function CustomerEditForm({ customer }: { customer: Customer }) {
       </Section>
 
       <Section title="Territory">
-        <Field name="region" label="Region" defaultValue={customer.region} />
-        <Field name="district" label="District" defaultValue={customer.district} />
-        <Field name="zoneNo" label="Zone no." defaultValue={customer.zoneNo} />
-        <Field name="zoneManager" label="Zone manager" defaultValue={customer.zoneManager} />
-        <Field name="storeGroup" label="Store group" defaultValue={customer.storeGroup} />
+        <Field name="region" label="Region" defaultValue={customer.region} suggestions={s.region} />
+        <Field name="district" label="District" defaultValue={customer.district} suggestions={s.district} />
+        <Field name="zoneNo" label="Zone no." defaultValue={customer.zoneNo} suggestions={s.zoneNo} />
+        <Field name="zoneManager" label="Zone manager" defaultValue={customer.zoneManager} suggestions={s.zoneManager} />
+        <Field name="storeGroup" label="Store group" defaultValue={customer.storeGroup} suggestions={s.storeGroup} />
       </Section>
 
       <Section title="Status &amp; identifiers">

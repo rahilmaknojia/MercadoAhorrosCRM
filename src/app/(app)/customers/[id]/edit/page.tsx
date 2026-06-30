@@ -1,8 +1,25 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { apiFetch } from "@/lib/server/api";
-import type { Customer } from "@/lib/types";
+import { MASTER_DATA_TYPES, type Customer, type MasterDataItem } from "@/lib/types";
 import { CustomerEditForm } from "@/components/customer-edit-form";
+
+// Active master-data values per territory field, for the form's type-ahead suggestions.
+async function fetchTerritorySuggestions(): Promise<Record<string, string[]>> {
+  const entries = await Promise.all(
+    MASTER_DATA_TYPES.map(async ({ type, field }) => {
+      try {
+        const res = await apiFetch(`/api/masterdata/by-type?type=${type}`);
+        if (!res.ok) return [field, []] as const;
+        const items = (await res.json()) as MasterDataItem[];
+        return [field, items.map((i) => i.name)] as const;
+      } catch {
+        return [field, []] as const;
+      }
+    })
+  );
+  return Object.fromEntries(entries);
+}
 
 export default async function EditCustomerPage({
   params,
@@ -31,6 +48,7 @@ export default async function EditCustomerPage({
     );
   }
   const customer = (await res.json()) as Customer;
+  const suggestions = await fetchTerritorySuggestions();
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -43,7 +61,7 @@ export default async function EditCustomerPage({
           Member {customer.memberId}. Equipment/footprint is managed separately as store metadata.
         </p>
       </div>
-      <CustomerEditForm customer={customer} />
+      <CustomerEditForm customer={customer} suggestions={suggestions} />
     </div>
   );
 }

@@ -4,17 +4,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
-import { useIsPrivileged } from "@/components/permissions-provider";
+import { useCan, useIsPrivileged } from "@/components/permissions-provider";
 import { Button } from "@/components/ui/button";
-import { LogOut, User, Users } from "lucide-react";
+import { Database, LogOut, User, Users } from "lucide-react";
 
 export function SettingsNav() {
   const pathname = usePathname();
   const privileged = useIsPrivileged();
+  const canReadMasterData = useCan("master_data:read");
 
   const items = [
     { href: "/settings/profile", label: "Profile", icon: User, show: true },
     { href: "/settings/users", label: "Users", icon: Users, show: privileged },
+    { href: "/settings/master-data", label: "Master data", icon: Database, show: canReadMasterData },
   ].filter((i) => i.show);
 
   async function logout() {
