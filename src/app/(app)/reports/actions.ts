@@ -112,7 +112,20 @@ export async function sendReportEmailNow(
   (def.metadataFilters ?? []).forEach((f) => p.append("metadataFilters", f));
 
   let summary = "";
-  if ((def.visualization ?? "table") === "table") {
+  if (def.source === "customer-vendor") {
+    const vp = new URLSearchParams();
+    (def.filters ?? []).forEach((f) => vp.append("filters", f));
+    if (def.vendorCodes?.trim()) vp.set("vendorCodes", def.vendorCodes.trim());
+    if (def.vendorGroupNames?.trim()) vp.set("vendorGroupNames", def.vendorGroupNames.trim());
+    vp.set("matchAll", String(def.matchAll ?? true));
+    vp.set("pageSize", "1");
+    const hasVendor = vp.has("vendorCodes") || vp.has("vendorGroupNames");
+    const r = hasVendor
+      ? await apiFetch(`/api/reports/customer-vendor?${vp.toString()}`).catch(() => null)
+      : null;
+    const total = r?.ok ? (JSON.parse(r.headers.get("x-pagination") || "{}").TotalCount ?? 0) : 0;
+    summary = `<p style="font-size:28px;font-weight:bold;margin:8px 0">${total}</p><p style="color:#71717a">matching customers</p>`;
+  } else if ((def.visualization ?? "table") === "table") {
     p.set("pageSize", "1");
     const r = await apiFetch(`/api/customers?${p.toString()}`).catch(() => null);
     const total = r?.ok ? (JSON.parse(r.headers.get("x-pagination") || "{}").TotalCount ?? 0) : 0;

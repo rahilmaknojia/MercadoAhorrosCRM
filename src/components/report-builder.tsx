@@ -1,11 +1,24 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { saveReport } from "@/app/(app)/reports/actions";
-import { CUSTOMER_FIELDS, FILTER_OPERATORS, GROUP_FIELDS, METADATA_OPERATORS } from "@/lib/report";
-import type { ReportDefinition, ReportFilterRow, ReportVisualization } from "@/lib/types";
+import {
+  CUSTOMER_FIELDS,
+  FILTER_OPERATORS,
+  GROUP_FIELDS,
+  METADATA_OPERATORS,
+  REPORT_SOURCES,
+  fetchVendorGroups,
+} from "@/lib/report";
+import type {
+  ReportDefinition,
+  ReportFilterRow,
+  ReportSource,
+  ReportVisualization,
+  VendorGroup,
+} from "@/lib/types";
 import { ReportView } from "@/components/report-view";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +45,7 @@ export function ReportBuilder({
 
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
+  const [source, setSource] = useState<ReportSource>(def?.source ?? "customers");
   const [visualization, setVisualization] = useState<ReportVisualization>(
     def?.visualization ?? "table"
   );
@@ -56,8 +70,49 @@ export function ReportBuilder({
       return { field, operator, value: rest.join("|") };
     })
   );
+  // customer-vendor source state (codes held as an array in the UI, saved as CSV)
+  const [vendorCodes, setVendorCodes] = useState<string[]>(
+    def?.vendorCodes ? def.vendorCodes.split(",").map((c) => c.trim()).filter(Boolean) : []
+  );
+  const [matchAll, setMatchAll] = useState(def?.matchAll ?? true);
+  const [vendorGroups, setVendorGroups] = useState<VendorGroup[]>([]);
+  const [vendorsLoading, setVendorsLoading] = useState(false);
+  const [vendorsError, setVendorsError] = useState<string | null>(null);
+
   const [preview, setPreview] = useState<ReportDefinition | null>(def ?? null);
   const [saving, startSaving] = useTransition();
+
+  // Load the grouped vendor catalogue the first time the vendor source is selected.
+  useEffect(() => {
+    if (source !== "customer-vendor" || vendorGroups.length > 0 || vendorsLoading) return;
+    let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setVendorsLoading(true);
+    setVendorsError(null);
+    (async () => {
+      try {
+        const groups = await fetchVendorGroups();
+        if (active) setVendorGroups(groups);
+      } catch (e) {
+        if (active) setVendorsError((e as Error).message);
+      } finally {
+        if (active) setVendorsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [source, vendorGroups.length, vendorsLoading]);
+
+  function toggleVendor(code: string, checked: boolean) {
+    setVendorCodes((prev) => (checked ? [...new Set([...prev, code])] : prev.filter((c) => c !== code)));
+  }
+  function toggleGroup(group: VendorGroup, checked: boolean) {
+    const codes = group.vendors.map((v) => v.code);
+    setVendorCodes((prev) =>
+      checked ? [...new Set([...prev, ...codes])] : prev.filter((c) => !codes.includes(c))
+    );
+  }
 
   function resolvedGroupBy(): string | undefined {
     if (visualization === "table") return undefined;
@@ -65,11 +120,31 @@ export function ReportBuilder({
   }
 
   function buildDefinition(): ReportDefinition {
+    const customerFilters = filters
+      .filter((f) => f.field && f.value !== "")
+      .map((f) => `${f.field}|${f.operator}|${f.value}`);
+
+    // Preserve dashboard/email settings already on the saved report.
+    const carried = {
+      pinnedToDashboard: def?.pinnedToDashboard ?? false,
+      dashboardSize: def?.dashboardSize,
+      emailRecipients: def?.emailRecipients,
+      emailFrequency: def?.emailFrequency,
+    };
+
+    if (source === "customer-vendor") {
+      return {
+        source: "customer-vendor",
+        filters: customerFilters,
+        vendorCodes: vendorCodes.length ? vendorCodes.join(",") : undefined,
+        matchAll,
+        ...carried,
+      };
+    }
+
     return {
       source: "customers",
-      filters: filters
-        .filter((f) => f.field && f.value !== "")
-        .map((f) => `${f.field}|${f.operator}|${f.value}`),
+      filters: customerFilters,
       metadataFilters: metaFilters
         .filter((f) => f.field && f.value !== "")
         .map((f) => `${f.field}|${f.operator}|${f.value}`),
@@ -78,7 +153,7 @@ export function ReportBuilder({
       groupBy: resolvedGroupBy(),
       series: visualization === "bar" && series ? series : undefined,
       aggregate: "count",
-      pinnedToDashboard: def?.pinnedToDashboard ?? false,
+      ...carried,
     };
   }
 
@@ -118,22 +193,41 @@ export function ReportBuilder({
         </div>
 
         <div className="space-y-1">
-          <Label htmlFor="viz">Visualization</Label>
+          <Label htmlFor="source">Data source</Label>
           <select
-            id="viz"
+            id="source"
             className={selectClass}
-            value={visualization}
-            onChange={(e) => setVisualization(e.target.value as ReportVisualization)}
+            value={source}
+            onChange={(e) => setSource(e.target.value as ReportSource)}
           >
-            {VISUALIZATIONS.map((v) => (
-              <option key={v.value} value={v.value}>
-                {v.label}
+            {REPORT_SOURCES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
               </option>
             ))}
           </select>
         </div>
 
-        {visualization !== "table" ? (
+        {source === "customers" && (
+          <div className="space-y-1">
+            <Label htmlFor="viz">Visualization</Label>
+            <select
+              id="viz"
+              className={selectClass}
+              value={visualization}
+              onChange={(e) => setVisualization(e.target.value as ReportVisualization)}
+            >
+              {VISUALIZATIONS.map((v) => (
+                <option key={v.value} value={v.value}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {source === "customers" &&
+          (visualization !== "table" ? (
           <>
             <div className="space-y-1">
               <Label htmlFor="groupBy">Group by</Label>
@@ -188,6 +282,75 @@ export function ReportBuilder({
                 </label>
               ))}
             </div>
+          </div>
+          ))}
+
+        {source === "customer-vendor" && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Vendors</Label>
+              {vendorCodes.length > 0 && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setVendorCodes([])}>
+                  Clear
+                </Button>
+              )}
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4"
+                checked={matchAll}
+                onChange={(e) => setMatchAll(e.target.checked)}
+              />
+              Match <strong>all</strong> selected vendors (otherwise any)
+            </label>
+            {vendorsLoading && (
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="size-3 animate-spin" /> Loading vendors…
+              </p>
+            )}
+            {vendorsError && <p className="text-xs text-destructive">{vendorsError}</p>}
+            {!vendorsLoading && !vendorsError && vendorGroups.length === 0 && (
+              <p className="text-xs text-muted-foreground">No vendors configured.</p>
+            )}
+            <div className="max-h-80 space-y-3 overflow-y-auto rounded-md border p-2">
+              {vendorGroups.map((g) => {
+                const codes = g.vendors.map((v) => v.code);
+                const allChecked = codes.length > 0 && codes.every((c) => vendorCodes.includes(c));
+                return (
+                  <div key={g.groupName} className="space-y-1">
+                    <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        className="size-3.5"
+                        checked={allChecked}
+                        onChange={(e) => toggleGroup(g, e.target.checked)}
+                      />
+                      {g.groupName || "Ungrouped"}
+                    </label>
+                    <div className="grid grid-cols-1 gap-1 pl-5 sm:grid-cols-2">
+                      {g.vendors.map((v) => (
+                        <label key={v.code} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="size-4"
+                            checked={vendorCodes.includes(v.code)}
+                            onChange={(e) => toggleVendor(v.code, e.target.checked)}
+                          />
+                          {v.name}
+                          {!v.isActive && <span className="text-xs text-muted-foreground">(inactive)</span>}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {vendorCodes.length === 0
+                ? "No vendors selected — all customers (optionally narrowed by the filters below)."
+                : `${vendorCodes.length} vendor(s) selected.`}
+            </p>
           </div>
         )}
 
@@ -253,6 +416,7 @@ export function ReportBuilder({
           ))}
         </div>
 
+        {source === "customers" && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label>Metadata filters</Label>
@@ -305,6 +469,7 @@ export function ReportBuilder({
             </div>
           ))}
         </div>
+        )}
 
         <div className="flex gap-2 pt-2">
           <Button type="button" variant="outline" onClick={() => setPreview(buildDefinition())}>

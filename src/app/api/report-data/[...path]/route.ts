@@ -9,6 +9,8 @@ const ALLOWED = new Set([
   "customers",
   "reports/customers/aggregate",
   "reports/customers/aggregate-2d",
+  "reports/customer-vendor",
+  "vendors/grouped",
 ]);
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {

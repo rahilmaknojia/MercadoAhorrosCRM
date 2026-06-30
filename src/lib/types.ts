@@ -95,9 +95,11 @@ export type ReportVisualization = "table" | "bar" | "pie" | "metric";
 
 export type ReportFilterRow = { field: string; operator: string; value: string };
 
+export type ReportSource = "customers" | "customer-vendor";
+
 // The report definition is stored inside ReportPreset.queryParameters (JSON).
 export type ReportDefinition = {
-  source?: string; // "customers"
+  source?: ReportSource; // defaults to "customers"
   filters?: string[]; // "field|operator|value"
   metadataFilters?: string[];
   columns?: string[];
@@ -111,6 +113,12 @@ export type ReportDefinition = {
   dashboardSize?: "small" | "large"; // widget width on the dashboard
   emailRecipients?: string[];
   emailFrequency?: "none" | "daily" | "weekly";
+  // customer-vendor source: which vendors to match and whether all (AND) or any (OR).
+  // Comma-separated strings to match the API's ReportPresetQueryParameters model
+  // (so saved presets also drive the API's presetId merge).
+  vendorCodes?: string;
+  vendorGroupNames?: string;
+  matchAll?: boolean;
 };
 
 export type ReportPreset = {
@@ -125,6 +133,48 @@ export type ReportPreset = {
 
 export type AggregateBucket = { key: string; count: number };
 export type Bucket2d = { key: string; series: AggregateBucket[] };
+
+// --- Customer ↔ Vendor report source ---
+// A vendor as returned by /api/vendors/grouped (the picker data).
+export type VendorSummary = {
+  id: number;
+  name: string;
+  code: string;
+  groupName: string;
+  groupOrder: number;
+  displayOrder: number;
+  isActive: boolean;
+};
+
+export type VendorGroup = {
+  groupName: string;
+  groupOrder: number;
+  vendors: VendorSummary[];
+};
+
+// A vendor selected by a customer, in the vendor report rows.
+export type VendorReportVendor = {
+  vendorId: number;
+  name: string;
+  code: string;
+  groupName: string;
+  groupOrder: number;
+  displayOrder: number;
+  accountNumber?: string | null;
+  jsonData?: string | null;
+};
+
+// One row of the customer-vendor report: a customer + their selected vendors.
+export type VendorReportItem = {
+  customerId: number;
+  memberId: string;
+  contactName: string;
+  businessName?: string | null;
+  storeCity?: string | null;
+  storeState?: string | null;
+  status: CustomerStatus;
+  selectedVendors: VendorReportVendor[];
+};
 
 // The .NET API returns the items as a JSON array and pagination metadata in the
 // X-Pagination response header.

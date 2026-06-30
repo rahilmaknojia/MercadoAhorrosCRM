@@ -1,4 +1,17 @@
-import type { AggregateBucket, Bucket2d, Customer, ReportDefinition } from "@/lib/types";
+import type {
+  AggregateBucket,
+  Bucket2d,
+  Customer,
+  ReportDefinition,
+  VendorGroup,
+  VendorReportItem,
+} from "@/lib/types";
+
+// Report data sources (what the report queries over).
+export const REPORT_SOURCES = [
+  { value: "customers", label: "Customers" },
+  { value: "customer-vendor", label: "Customer ↔ Vendor" },
+] as const;
 
 // Fields available for filtering / table columns.
 export const CUSTOMER_FIELDS = [
@@ -48,6 +61,12 @@ export const GROUP_FIELDS = [
 
 export function fieldLabel(value: string): string {
   return CUSTOMER_FIELDS.find((f) => f.value === value)?.label ?? value;
+}
+
+// Short label for the report-kind badge.
+export function vizLabel(def: ReportDefinition): string {
+  if (def.source === "customer-vendor") return "vendor list";
+  return def.visualization ?? "table";
 }
 
 // The API stores the report definition as a JSON string (jsonb). Parse defensively.
@@ -106,4 +125,48 @@ export async function fetchAggregate2d(def: ReportDefinition): Promise<Bucket2d[
   });
   if (!res.ok) throw new Error(`Failed to run report (${res.status}).`);
   return (await res.json()) as Bucket2d[];
+}
+
+// --- Customer ↔ Vendor source ---
+
+// The vendor report endpoint takes customer field filters plus vendor selectors.
+export function hasVendorSelection(def: ReportDefinition): boolean {
+  return !!def.vendorCodes?.trim() || !!def.vendorGroupNames?.trim();
+}
+
+export function buildVendorParams(def: ReportDefinition): URLSearchParams {
+  const p = new URLSearchParams();
+  (def.filters ?? []).filter(Boolean).forEach((f) => p.append("filters", f));
+  if (def.vendorCodes?.trim()) p.set("vendorCodes", def.vendorCodes.trim());
+  if (def.vendorGroupNames?.trim()) p.set("vendorGroupNames", def.vendorGroupNames.trim());
+  p.set("matchAll", String(def.matchAll ?? true));
+  return p;
+}
+
+export async function fetchVendorReport(
+  def: ReportDefinition
+): Promise<{ rows: VendorReportItem[]; total: number }> {
+  const p = buildVendorParams(def);
+  p.set("pageNumber", "1");
+  p.set("pageSize", "100");
+  if (def.sortField) {
+    p.set("sortField", def.sortField);
+    p.set("ascending", String(def.ascending ?? true));
+  }
+  const res = await fetch(`/api/report-data/reports/customer-vendor?${p.toString()}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Failed to run report (${res.status}).`);
+  const rows = (await res.json()) as VendorReportItem[];
+  const header = res.headers.get("x-pagination");
+  const total = header ? (JSON.parse(header).TotalCount as number) : rows.length;
+  return { rows: Array.isArray(rows) ? rows : [], total };
+}
+
+// Load the grouped vendor catalogue for the builder's vendor picker.
+export async function fetchVendorGroups(): Promise<VendorGroup[]> {
+  const res = await fetch(`/api/report-data/vendors/grouped`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to load vendors (${res.status}).`);
+  const groups = (await res.json()) as VendorGroup[];
+  return Array.isArray(groups) ? groups : [];
 }

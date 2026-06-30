@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { apiFetch } from "@/lib/server/api";
-import { parseDefinition } from "@/lib/report";
+import { parseDefinition, vizLabel } from "@/lib/report";
 import type { ReportPreset } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -67,7 +67,7 @@ export default async function ReportsPage() {
                       <div className="flex items-center gap-1">
                         {def.pinnedToDashboard && <Pin className="size-4 text-brand" />}
                         <Badge variant="secondary" className="capitalize">
-                          {def.visualization ?? "table"}
+                          {vizLabel(def)}
                         </Badge>
                       </div>
                     </div>

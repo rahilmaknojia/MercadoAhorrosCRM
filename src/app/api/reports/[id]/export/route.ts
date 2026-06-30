@@ -37,6 +37,38 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   }
   const preset = (await presetRes.json()) as ReportPreset;
   const def = parseDefinition(preset.queryParameters);
+  const safeName = preset.name.replace(/[^\w.\-]+/g, "_");
+
+  // Customer ↔ Vendor source: let the API render the flat CSV (one row per
+  // customer-vendor pair) — it owns the vendor join and state scoping.
+  if (def.source === "customer-vendor") {
+    if (!def.vendorCodes?.trim() && !def.vendorGroupNames?.trim()) {
+      return NextResponse.json(
+        { error: "Select at least one vendor before exporting." },
+        { status: 400 }
+      );
+    }
+    const p = new URLSearchParams();
+    (def.filters ?? []).filter(Boolean).forEach((f) => p.append("filters", f));
+    if (def.vendorCodes?.trim()) p.set("vendorCodes", def.vendorCodes.trim());
+    if (def.vendorGroupNames?.trim()) p.set("vendorGroupNames", def.vendorGroupNames.trim());
+    p.set("matchAll", String(def.matchAll ?? true));
+    const res = await fetch(`${API}/api/reports/customer-vendor/export-flat?${p.toString()}`, {
+      headers: auth,
+      cache: "no-store",
+    }).catch(() => null);
+    if (!res?.ok) {
+      return NextResponse.json({ error: "Failed to export report." }, { status: res?.status ?? 502 });
+    }
+    return new NextResponse(await res.text(), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${safeName}.csv"`,
+      },
+    });
+  }
+
   const viz = def.visualization ?? "table";
 
   let csv = "";
@@ -78,7 +110,6 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       buckets.map((b) => csvRow([b.key, b.count])).join("\n");
   }
 
-  const safeName = preset.name.replace(/[^\w.\-]+/g, "_");
   return new NextResponse(csv, {
     status: 200,
     headers: {

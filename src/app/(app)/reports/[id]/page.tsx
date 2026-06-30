@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { apiFetch } from "@/lib/server/api";
-import { parseDefinition } from "@/lib/report";
+import { parseDefinition, vizLabel } from "@/lib/report";
 import type { ReportPreset } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -45,7 +45,7 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold">{preset.name}</h1>
             <Badge variant="secondary" className="capitalize">
-              {def.visualization ?? "table"}
+              {vizLabel(def)}
             </Badge>
             {def.pinnedToDashboard && <Pin className="size-4 text-brand" />}
           </div>

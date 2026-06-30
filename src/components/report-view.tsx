@@ -15,8 +15,22 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchAggregate, fetchAggregate2d, fetchTable, fieldLabel } from "@/lib/report";
-import type { AggregateBucket, Bucket2d, Customer, ReportDefinition } from "@/lib/types";
+import {
+  fetchAggregate,
+  fetchAggregate2d,
+  fetchTable,
+  fetchVendorReport,
+  fieldLabel,
+  hasVendorSelection,
+} from "@/lib/report";
+import type {
+  AggregateBucket,
+  Bucket2d,
+  Customer,
+  ReportDefinition,
+  VendorReportItem,
+} from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -42,7 +56,17 @@ const DEFAULT_COLUMNS = ["memberId", "businessName", "storeCity", "storeState", 
 
 const DATE_GROUP_FIELDS = new Set(["dateJoined", "createdOn"]);
 
+// Dispatch on the report source. Each branch renders a self-contained component
+// with its own hooks, so switching source (e.g. in the builder) is a normal
+// conditional render — not a conditional hook.
 export function ReportView({ definition }: { definition: ReportDefinition }) {
+  if (definition.source === "customer-vendor") {
+    return <VendorReportTable definition={definition} />;
+  }
+  return <CustomerReportView definition={definition} />;
+}
+
+function CustomerReportView({ definition }: { definition: ReportDefinition }) {
   const router = useRouter();
   const viz = definition.visualization ?? "table";
 
@@ -243,6 +267,123 @@ export function ReportView({ definition }: { definition: ReportDefinition }) {
                     const v = (r as unknown as Record<string, unknown>)[c];
                     return <TableCell key={c}>{v == null || v === "" ? "—" : String(v)}</TableCell>;
                   })}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+// Customer ↔ Vendor report: one row per customer with their selected vendors.
+function VendorReportTable({ definition }: { definition: ReportDefinition }) {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [rows, setRows] = useState<VendorReportItem[]>([]);
+  const [total, setTotal] = useState(0);
+
+  // The API requires at least one vendor selector; guide the user otherwise.
+  const hasSelection = hasVendorSelection(definition);
+
+  const key = JSON.stringify(definition);
+  useEffect(() => {
+    // No selection → the render guard below shows guidance; nothing to fetch.
+    if (!hasSelection) return;
+    let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoading(true);
+    setError(null);
+    (async () => {
+      try {
+        const res = await fetchVendorReport(definition);
+        if (!active) return;
+        setRows(res.rows);
+        setTotal(res.total);
+      } catch (e) {
+        if (active) setError((e as Error).message);
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, hasSelection]);
+
+  if (!hasSelection) {
+    return (
+      <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+        Select at least one vendor to run this report.
+      </div>
+    );
+  }
+  if (loading) {
+    return (
+      <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+        <Loader2 className="mr-2 animate-spin" /> Running report…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+        {error}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">{total} matching customer(s)</p>
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Member ID</TableHead>
+              <TableHead>Business</TableHead>
+              <TableHead>City</TableHead>
+              <TableHead>State</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Selected vendors</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  No matching customers.
+                </TableCell>
+              </TableRow>
+            ) : (
+              rows.map((r) => (
+                <TableRow
+                  key={r.customerId}
+                  className="cursor-pointer"
+                  onClick={() => router.push(`/customers/${r.customerId}`)}
+                >
+                  <TableCell className="font-medium">{r.memberId}</TableCell>
+                  <TableCell>{r.businessName || r.contactName || "—"}</TableCell>
+                  <TableCell>{r.storeCity || "—"}</TableCell>
+                  <TableCell>{r.storeState || "—"}</TableCell>
+                  <TableCell>{r.status}</TableCell>
+                  <TableCell>
+                    {r.selectedVendors.length === 0 ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {r.selectedVendors.map((v) => (
+                          <Badge key={v.vendorId} variant="secondary" title={v.groupName}>
+                            {v.name}
+                            {v.accountNumber ? ` · ${v.accountNumber}` : ""}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))
             )}
