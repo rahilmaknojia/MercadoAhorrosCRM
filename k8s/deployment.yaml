@@ -20,7 +20,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: mercado-crm
-          image: registry.digitalocean.com/edi/mercado-crm:1.0.15
+          image: registry.digitalocean.com/edi/mercado-crm:1.0.16
           imagePullPolicy: Always
           ports:
             - containerPort: 8102
