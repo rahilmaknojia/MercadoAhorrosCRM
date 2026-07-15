@@ -37,13 +37,31 @@ export const FILTER_OPERATORS = [
 ] as const;
 
 // Operators supported by StoreMetadata JSONB filters (StoreMetadataSqlFilter).
+// "exists" is the canonical operator for slug-keyed sets like coolers, where the answer is
+// encoded by the key being present at all (e.g. coolers.standing.coke|exists). It takes no value.
 export const METADATA_OPERATORS = [
+  { value: "exists", label: "is present" },
   { value: "eq", label: "equals" },
   { value: "contains", label: "contains" },
   { value: "gt", label: "greater than" },
   { value: "gte", label: "greater or equal" },
   { value: "lt", label: "less than" },
   { value: "lte", label: "less or equal" },
+] as const;
+
+/** Operators that ignore the value input (the clause is just path|operator). */
+export const VALUELESS_METADATA_OPERATORS: readonly string[] = ["exists"];
+
+// Handy starting points for the metadata path input. The cooler document is slug-keyed
+// (coolers.<type>.<brandCode>.<packageCode>), so brand/package codes are appended by the user.
+export const COOLER_METADATA_PATHS = [
+  { value: "coolers.standing", label: "Standing cooler brands" },
+  { value: "coolers.counter_top", label: "Counter-top cooler brands" },
+  { value: "coolers.mid_size", label: "Mid-size cooler brands" },
+  { value: "cold_vaults.no_of_cold_vault", label: "Cold vault count" },
+  { value: "cold_vaults.no_of_carb_doors", label: "Carbonated door count" },
+  { value: "cold_vaults.no_of_non_carb_doors", label: "Non-carbonated door count" },
+  { value: "shared_coolers.notes", label: "Shared cooler notes" },
 ] as const;
 
 // Fields the API can group by (mirrors CustomerService.GroupableFields).

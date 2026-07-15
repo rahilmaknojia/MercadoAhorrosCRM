@@ -28,11 +28,14 @@ export type AdminUser = {
 export const APP_ROLES = ["owner", "admin", "staff", "user"] as const;
 export type AppRole = (typeof APP_ROLES)[number];
 
-// A managed territory/master-data lookup value (region/district/zone/manager/group).
+// A managed master-data lookup value: a territory (region/district/zone/manager/group) or a
+// cooler catalogue value (brand/package/shared combination).
 export type MasterDataItem = {
   id: number;
   type: string;
   name: string;
+  /** Stable slug; the StoreMetadata JSON key for catalogue types. Immutable across renames. */
+  code: string;
   displayOrder: number;
   isActive: boolean;
   createdOn?: string;
@@ -40,7 +43,9 @@ export type MasterDataItem = {
   modifiedOn?: string | null;
 };
 
-// type = API master-data type; field = the matching Customer string field.
+// Territory lookups. type = API master-data type; field = the matching Customer string field.
+// Every entry here is fetched as a suggestion source by the customer edit form, so only add a
+// type whose values land in a Customer column — catalogue types go in COOLER_MASTER_DATA_TYPES.
 export const MASTER_DATA_TYPES = [
   { type: "region", label: "Regions", field: "region" },
   { type: "district", label: "Districts", field: "district" },
@@ -48,6 +53,67 @@ export const MASTER_DATA_TYPES = [
   { type: "zoneManager", label: "Zone managers", field: "zoneManager" },
   { type: "storeGroup", label: "Store groups", field: "storeGroup" },
 ] as const;
+
+// Catalogue lookups for the store cooler footprint. These are many-per-customer and are
+// referenced from StoreMetadata JSON by their Code, so they have no Customer field.
+export const COOLER_MASTER_DATA_TYPES = [
+  { type: "coolerBrand", label: "Cooler brands" },
+  { type: "coolerPackage", label: "Cooler packages" },
+  { type: "sharedCooler", label: "Shared cooler combinations" },
+] as const;
+
+// Everything the master-data admin screen manages.
+export const MANAGED_MASTER_DATA_TYPES = [
+  ...MASTER_DATA_TYPES.map((t) => ({ type: t.type as string, label: t.label as string })),
+  ...COOLER_MASTER_DATA_TYPES.map((t) => ({ type: t.type as string, label: t.label as string })),
+];
+
+/** Fixed structural dimension of the cooler document — not master data. */
+export const COOLER_TYPES = [
+  { key: "standing", label: "Standing Cooler" },
+  { key: "counter_top", label: "Counter-Top Cooler" },
+  { key: "mid_size", label: "Mid-Size Cooler" },
+] as const;
+
+export type CoolerTypeKey = (typeof COOLER_TYPES)[number]["key"];
+
+/**
+ * The cooler section of a customer's StoreMetadata document.
+ * Shape: coolers.<coolerType>.<brandCode>.<packageCode> = true
+ *
+ * Invariants (these fail silently, not loudly — see the API's CoolerMetadataKeys):
+ *  - present implies true; never write `false`/`null` (a stored null makes `exists` match all)
+ *  - prune empty objects
+ *  - keys are master-data Codes, never display names
+ *  - counts are numbers, so gte/between work
+ */
+export type CoolerDocument = {
+  coolers?: Partial<Record<CoolerTypeKey, Record<string, Record<string, true>>>>;
+  shared_coolers?: { notes?: string; selected?: Record<string, true> };
+  cold_vaults?: {
+    no_of_cold_vault?: number;
+    no_of_carb_doors?: number;
+    no_of_non_carb_doors?: number;
+  };
+};
+
+/** One editable cooler row in the UI. */
+export type CoolerRow = { coolerType: CoolerTypeKey; brand: string; package: string };
+
+export type CustomerVendorSelectionItem = {
+  vendorId: number;
+  name: string;
+  code: string;
+  groupName: string;
+  isSelected: boolean;
+  accountNumber?: string | null;
+};
+
+export type CustomerVendorSelectionGroup = {
+  groupName: string;
+  groupOrder: number;
+  vendors: CustomerVendorSelectionItem[];
+};
 
 export type CustomerStatus = "Active" | "Pending" | "Inactive";
 

@@ -1,13 +1,21 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { apiFetch } from "@/lib/server/api";
-import type { Customer, StoreMetadata } from "@/lib/types";
+import type {
+  CoolerDocument,
+  Customer,
+  CustomerVendorSelectionGroup,
+  MasterDataItem,
+  StoreMetadata,
+} from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Can } from "@/components/permissions-provider";
 import { CustomerPhotos } from "@/components/customer-photos";
 import { CustomerActivity } from "@/components/customer-activity";
+import { CustomerCoolers } from "@/components/customer-coolers";
+import { CustomerVendors } from "@/components/customer-vendors";
 import { Pencil } from "lucide-react";
 
 function statusVariant(status: string): "default" | "secondary" | "outline" {
@@ -76,21 +84,36 @@ export default async function CustomerDetailPage({
   }
   const customer = (await res.json()) as Customer;
 
-  // Store metadata for this customer (activity is loaded + paginated client-side).
-  const [metadata] = await Promise.all([
+  // Store metadata, the cooler catalogue and vendor selections (activity is loaded + paginated
+  // client-side). The catalogue drives the cooler dropdowns; inactive values are excluded so they
+  // can't be newly selected, but existing selections still render (see CatalogueSelect).
+  const [metadata, vendorGroups, brands, packages, sharedCoolers] = await Promise.all([
     fetchArray<StoreMetadata>(`/api/storemetadata?filters=customerId|exact|${id}&pageSize=1`),
+    fetchArray<CustomerVendorSelectionGroup>(`/api/customers/${id}/vendors`),
+    fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=coolerBrand`),
+    fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=coolerPackage`),
+    fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=sharedCooler`),
   ]);
 
-  // Equipment JSON for display + photo captions (stashed under a reserved key, which
-  // we extract and hide from the raw equipment view).
+  // The document holds several recognized sections plus a long tail of free-form equipment keys.
+  // Pull out the sections that now have real UI (and the reserved photo-caption key), and keep
+  // the raw view as a fallback for whatever is left, so nothing becomes invisible.
   let metaJson: string | null = null;
   let photoCaptions: Record<string, string> = {};
+  let coolerDoc: CoolerDocument = {};
   if (metadata[0]?.jsonData) {
     try {
       const parsed = JSON.parse(metadata[0].jsonData) as Record<string, unknown>;
       photoCaptions = (parsed.__photoCaptions as Record<string, string>) ?? {};
+      coolerDoc = {
+        coolers: parsed.coolers as CoolerDocument["coolers"],
+        shared_coolers: parsed.shared_coolers as CoolerDocument["shared_coolers"],
+        cold_vaults: parsed.cold_vaults as CoolerDocument["cold_vaults"],
+      };
       const rest: Record<string, unknown> = { ...parsed };
-      delete rest.__photoCaptions;
+      for (const key of ["__photoCaptions", "coolers", "shared_coolers", "cold_vaults"]) {
+        delete rest[key];
+      }
       metaJson = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : null;
     } catch {
       metaJson = metadata[0].jsonData;
@@ -197,18 +220,27 @@ export default async function CustomerDetailPage({
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Store metadata (equipment / footprint)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {metaJson ? (
+      <CustomerVendors customerId={customer.id} groups={vendorGroups} />
+
+      <CustomerCoolers
+        customerId={customer.id}
+        document={coolerDoc}
+        brands={brands}
+        packages={packages}
+        sharedCoolers={sharedCoolers}
+      />
+
+      {/* Whatever else lives in the document and has no dedicated UI yet. */}
+      {metaJson && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Other store metadata</CardTitle>
+          </CardHeader>
+          <CardContent>
             <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs">{metaJson}</pre>
-          ) : (
-            <p className="text-sm text-muted-foreground">No store metadata recorded.</p>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       <CustomerPhotos
         memberId={customer.memberId}

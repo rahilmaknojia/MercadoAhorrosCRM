@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { saveReport } from "@/app/(app)/reports/actions";
 import {
+  COOLER_METADATA_PATHS,
   CUSTOMER_FIELDS,
   FILTER_OPERATORS,
   GROUP_FIELDS,
   METADATA_OPERATORS,
   REPORT_SOURCES,
+  VALUELESS_METADATA_OPERATORS,
   fetchVendorGroups,
 } from "@/lib/report";
 import type {
@@ -35,6 +37,22 @@ const VISUALIZATIONS: { value: ReportVisualization; label: string }[] = [
 const selectClass =
   "h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
+// "exists" takes no value — the clause is just path|operator.
+const isValuelessMetaOperator = (operator: string) => VALUELESS_METADATA_OPERATORS.includes(operator);
+
+/** Shared suggestions for every metadata path input on this screen. */
+function CoolerMetadataPathOptions() {
+  return (
+    <datalist id="cooler-metadata-paths">
+      {COOLER_METADATA_PATHS.map((p) => (
+        <option key={p.value} value={p.value}>
+          {p.label}
+        </option>
+      ))}
+    </datalist>
+  );
+}
+
 export function ReportBuilder({
   initial,
 }: {
@@ -49,11 +67,20 @@ export function ReportBuilder({
   const [visualization, setVisualization] = useState<ReportVisualization>(
     def?.visualization ?? "table"
   );
-  const initialMetaPath = def?.groupBy?.startsWith("meta:") ? def.groupBy.slice(5) : "";
+  // groupBy round-trips as "meta:<path>" (group by a JSON value) or "metakeys:<path>" (group by
+  // the JSON object keys at a path — how slug-keyed sets like cooler brands are counted).
+  const initialMetaKeysPath = def?.groupBy?.startsWith("metakeys:")
+    ? def.groupBy.slice("metakeys:".length)
+    : "";
+  const initialMetaPath = def?.groupBy?.startsWith("meta:") ? def.groupBy.slice("meta:".length) : "";
   const [groupBy, setGroupBy] = useState(
-    initialMetaPath ? "__meta__" : (def?.groupBy ?? GROUP_FIELDS[0].value)
+    initialMetaKeysPath
+      ? "__metakeys__"
+      : initialMetaPath
+        ? "__meta__"
+        : (def?.groupBy ?? GROUP_FIELDS[0].value)
   );
-  const [metaGroupPath, setMetaGroupPath] = useState(initialMetaPath);
+  const [metaGroupPath, setMetaGroupPath] = useState(initialMetaKeysPath || initialMetaPath);
   const [series, setSeries] = useState(def?.series ?? "");
   const [metaFilters, setMetaFilters] = useState<ReportFilterRow[]>(
     (def?.metadataFilters ?? []).map((f) => {
@@ -116,7 +143,9 @@ export function ReportBuilder({
 
   function resolvedGroupBy(): string | undefined {
     if (visualization === "table") return undefined;
-    return groupBy === "__meta__" ? `meta:${metaGroupPath.trim()}` : groupBy;
+    if (groupBy === "__meta__") return `meta:${metaGroupPath.trim()}`;
+    if (groupBy === "__metakeys__") return `metakeys:${metaGroupPath.trim()}`;
+    return groupBy;
   }
 
   function buildDefinition(): ReportDefinition {
@@ -145,9 +174,15 @@ export function ReportBuilder({
     return {
       source: "customers",
       filters: customerFilters,
+      // Valueless operators (exists) emit "path|operator" — appending an empty value would make
+      // the clause unparseable, and requiring a value would drop the row entirely.
       metadataFilters: metaFilters
-        .filter((f) => f.field && f.value !== "")
-        .map((f) => `${f.field}|${f.operator}|${f.value}`),
+        .filter((f) => f.field && (isValuelessMetaOperator(f.operator) || f.value !== ""))
+        .map((f) =>
+          isValuelessMetaOperator(f.operator)
+            ? `${f.field}|${f.operator}`
+            : `${f.field}|${f.operator}|${f.value}`
+        ),
       columns: visualization === "table" ? columns : undefined,
       visualization,
       groupBy: resolvedGroupBy(),
@@ -176,6 +211,7 @@ export function ReportBuilder({
 
   return (
     <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+      <CoolerMetadataPathOptions />
       {/* Config */}
       <div className="space-y-5">
         <div className="space-y-1">
@@ -238,14 +274,28 @@ export function ReportBuilder({
                   </option>
                 ))}
                 <option value="__meta__">Metadata field…</option>
+                <option value="__metakeys__">Metadata keys (multi-select facet)…</option>
               </select>
-              {groupBy === "__meta__" && (
-                <Input
-                  value={metaGroupPath}
-                  onChange={(e) => setMetaGroupPath(e.target.value)}
-                  placeholder="metadata path, e.g. gas.brand"
-                  className="mt-1"
-                />
+              {(groupBy === "__meta__" || groupBy === "__metakeys__") && (
+                <>
+                  <Input
+                    value={metaGroupPath}
+                    onChange={(e) => setMetaGroupPath(e.target.value)}
+                    placeholder={
+                      groupBy === "__metakeys__"
+                        ? "path to a keyed set, e.g. coolers.standing"
+                        : "metadata path, e.g. gas.brand"
+                    }
+                    className="mt-1"
+                    list="cooler-metadata-paths"
+                  />
+                  {groupBy === "__metakeys__" && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Counts members per key at this path (e.g. per cooler brand). A member with
+                      two brands counts in both, so the bars sum to more than the member count.
+                    </p>
+                  )}
+                </>
               )}
             </div>
             {visualization === "bar" && (
@@ -430,15 +480,19 @@ export function ReportBuilder({
             </Button>
           </div>
           {metaFilters.length === 0 && (
-            <p className="text-xs text-muted-foreground">Filter on StoreMetadata JSON values (e.g. gas.brand).</p>
+            <p className="text-xs text-muted-foreground">
+              Filter on StoreMetadata JSON values (e.g. gas.brand), or use &ldquo;is present&rdquo; on a
+              cooler path such as coolers.standing.coke.
+            </p>
           )}
           {metaFilters.map((row, i) => (
             <div key={i} className="flex items-center gap-1">
               <Input
                 value={row.field}
                 onChange={(e) => setMetaFilters((p) => p.map((r, j) => (j === i ? { ...r, field: e.target.value } : r)))}
-                placeholder="path e.g. gas.brand"
+                placeholder="path e.g. coolers.standing.coke"
                 className="h-9"
+                list="cooler-metadata-paths"
               />
               <select
                 className={`${selectClass} w-28`}
@@ -451,12 +505,14 @@ export function ReportBuilder({
                   </option>
                 ))}
               </select>
-              <Input
-                value={row.value}
-                onChange={(e) => setMetaFilters((p) => p.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)))}
-                placeholder="value"
-                className="h-9"
-              />
+              {!isValuelessMetaOperator(row.operator) && (
+                <Input
+                  value={row.value}
+                  onChange={(e) => setMetaFilters((p) => p.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)))}
+                  placeholder="value"
+                  className="h-9"
+                />
+              )}
               <Button
                 type="button"
                 variant="ghost"

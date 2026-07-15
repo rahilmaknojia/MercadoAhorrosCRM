@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { MASTER_DATA_TYPES, type MasterDataItem } from "@/lib/types";
+import { MANAGED_MASTER_DATA_TYPES, type MasterDataItem } from "@/lib/types";
 import {
   createMasterDataItem,
   deleteMasterDataItem,
@@ -21,7 +21,7 @@ export function MasterDataManager({ itemsByType }: { itemsByType: Record<string,
   const canManage = useCan("master_data:manage");
   return (
     <div className="space-y-8">
-      {MASTER_DATA_TYPES.map(({ type, label }) => (
+      {MANAGED_MASTER_DATA_TYPES.map(({ type, label }) => (
         <TypeSection
           key={type}
           type={type}

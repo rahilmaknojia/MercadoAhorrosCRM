@@ -1,5 +1,5 @@
 import { apiFetch } from "@/lib/server/api";
-import { MASTER_DATA_TYPES, type MasterDataItem } from "@/lib/types";
+import { MANAGED_MASTER_DATA_TYPES, type MasterDataItem } from "@/lib/types";
 import { MasterDataManager } from "@/components/master-data-manager";
 
 async function fetchType(type: string): Promise<MasterDataItem[]> {
@@ -15,7 +15,7 @@ async function fetchType(type: string): Promise<MasterDataItem[]> {
 
 export default async function MasterDataPage() {
   const entries = await Promise.all(
-    MASTER_DATA_TYPES.map(async ({ type }) => [type, await fetchType(type)] as const)
+    MANAGED_MASTER_DATA_TYPES.map(async ({ type }) => [type, await fetchType(type)] as const)
   );
   const itemsByType = Object.fromEntries(entries) as Record<string, MasterDataItem[]>;
 
@@ -24,8 +24,10 @@ export default async function MasterDataPage() {
       <div>
         <h1 className="text-xl font-semibold">Master data</h1>
         <p className="text-sm text-muted-foreground">
-          Curated territory values. These power the type-ahead suggestions on the customer form.
-          Disabling hides a value from suggestions without affecting customers that already use it.
+          Curated territory values (which power the customer form&apos;s suggestions) and cooler
+          catalogue values (which power the cooler picker). Disabling hides a value from new
+          selections without affecting customers that already use it. Renaming is safe — stored
+          data tracks each value by its code, not its label.
         </p>
       </div>
       <MasterDataManager itemsByType={itemsByType} />
