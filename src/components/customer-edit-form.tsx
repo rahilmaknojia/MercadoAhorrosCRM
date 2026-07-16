@@ -7,6 +7,7 @@ import type { Customer } from "@/lib/types";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PhoneInput } from "@/components/phone-input";
 import { Loader2 } from "lucide-react";
 
 const selectClass =
@@ -103,9 +104,9 @@ export function CustomerEditForm({
         <Field name="businessName" label="Business name" defaultValue={customer.businessName} />
         <Field name="corpName" label="Corporate name" defaultValue={customer.corpName} />
         <Field name="email" label="Email" type="email" defaultValue={customer.email} />
-        <Field name="storePhone" label="Store phone" defaultValue={customer.storePhone} />
-        <Field name="cellPhone" label="Cell phone" defaultValue={customer.cellPhone} />
-        <Field name="storeFax" label="Fax" defaultValue={customer.storeFax} />
+        <PhoneInput name="storePhone" label="Store phone" defaultValue={customer.storePhone} />
+        <PhoneInput name="cellPhone" label="Cell phone" defaultValue={customer.cellPhone} />
+        <PhoneInput name="storeFax" label="Fax" defaultValue={customer.storeFax} />
       </Section>
 
       <Section title="Store location">

@@ -378,7 +378,6 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
                         {r.selectedVendors.map((v) => (
                           <Badge key={v.vendorId} variant="secondary" title={v.groupName}>
                             {v.name}
-                            {v.accountNumber ? ` · ${v.accountNumber}` : ""}
                           </Badge>
                         ))}
                       </div>

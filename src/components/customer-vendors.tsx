@@ -6,7 +6,8 @@ import { setCustomerVendors } from "@/app/(app)/customers/[id]/vendor-actions";
 import { useCan } from "@/components/permissions-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Pencil, Save, X } from "lucide-react";
+import { Check, Loader2, Pencil, Save, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { CustomerVendorSelectionGroup } from "@/lib/types";
 
 /** Selecting this clears the rest of its group — it means "carries none". */
@@ -32,6 +33,8 @@ export function CustomerVendors({
   const canEdit = useCan("customer_data:update");
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
+  // Off by default so the card reads as "what this store uses"; on reveals the full roster.
+  const [showUnselected, setShowUnselected] = useState(false);
   const initial = () =>
     new Set(groups.flatMap((g) => g.vendors.filter((v) => v.isSelected).map((v) => v.vendorId)));
   const [selected, setSelected] = useState<Set<number>>(initial);
@@ -86,26 +89,42 @@ export function CustomerVendors({
             {totalSelected === 0 ? "None recorded" : `${totalSelected} selected`}
           </p>
         </div>
-        {canEdit &&
-          (editing ? (
-            <div className="flex gap-2">
-              <Button size="sm" variant="ghost" onClick={cancel} disabled={pending}>
-                <X /> Cancel
-              </Button>
-              <Button size="sm" onClick={save} disabled={pending}>
-                {pending ? <Loader2 className="animate-spin" /> : <Save />} Save
-              </Button>
-            </div>
-          ) : (
-            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-              <Pencil /> Edit
+        {editing ? (
+          <div className="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={cancel} disabled={pending}>
+              <X /> Cancel
             </Button>
-          ))}
+            <Button size="sm" onClick={save} disabled={pending}>
+              {pending ? <Loader2 className="animate-spin" /> : <Save />} Save
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                className="size-3.5"
+                checked={showUnselected}
+                onChange={(e) => setShowUnselected(e.target.checked)}
+              />
+              Show unselected
+            </label>
+            {canEdit && (
+              <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+                <Pencil /> Edit
+              </Button>
+            )}
+          </div>
+        )}
       </CardHeader>
 
       <CardContent className="space-y-4">
         {groups.map((group) => {
-          const chosen = group.vendors.filter((v) => selected.has(v.vendorId));
+          // Read mode shows the whole group so the reader sees what's available, not just what's
+          // chosen — selected vendors sort to the front and are highlighted; the rest stay muted.
+          const ordered = [...group.vendors].sort(
+            (a, b) => Number(selected.has(b.vendorId)) - Number(selected.has(a.vendorId))
+          );
           return (
             <div key={group.groupName} className="grid gap-2 sm:grid-cols-[160px_1fr]">
               <h3 className="text-sm font-medium text-muted-foreground">{group.groupName}</h3>
@@ -125,22 +144,36 @@ export function CustomerVendors({
                     </label>
                   ))}
                 </div>
-              ) : chosen.length === 0 ? (
-                <p className="text-sm text-muted-foreground">—</p>
               ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {chosen.map((vendor) => (
-                    <span
-                      key={vendor.vendorId}
-                      className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-medium"
-                    >
-                      {vendor.name}
-                      {vendor.accountNumber && (
-                        <span className="ml-1.5 text-muted-foreground">{vendor.accountNumber}</span>
-                      )}
-                    </span>
-                  ))}
-                </div>
+                (() => {
+                  const visible = showUnselected
+                    ? ordered
+                    : ordered.filter((v) => selected.has(v.vendorId));
+                  if (visible.length === 0) {
+                    return <p className="text-sm text-muted-foreground">—</p>;
+                  }
+                  return (
+                    <div className="flex flex-wrap gap-1.5">
+                      {visible.map((vendor) => {
+                        const isSelected = selected.has(vendor.vendorId);
+                        return (
+                          <span
+                            key={vendor.vendorId}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                              isSelected
+                                ? "border-transparent bg-primary/10 text-foreground"
+                                : "border-dashed border-border text-muted-foreground/70"
+                            )}
+                          >
+                            {isSelected && <Check className="size-3 text-primary" />}
+                            {vendor.name}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  );
+                })()
               )}
             </div>
           );

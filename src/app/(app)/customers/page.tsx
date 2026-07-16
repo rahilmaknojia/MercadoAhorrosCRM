@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { apiFetch } from "@/lib/server/api";
+import { formatPhone } from "@/lib/utils";
 import type { Customer, PageInfo } from "@/lib/types";
 import {
   Table,
@@ -159,7 +160,7 @@ export default async function CustomersPage({
                     <TableCell>
                       {[c.storeCity, c.storeState].filter(Boolean).join(", ") || "—"}
                     </TableCell>
-                    <TableCell>{c.storePhone ?? "—"}</TableCell>
+                    <TableCell>{formatPhone(c.storePhone) || c.storePhone || "—"}</TableCell>
                     <TableCell>
                       <Badge variant={statusVariant(c.status)}>{c.status}</Badge>
                     </TableCell>

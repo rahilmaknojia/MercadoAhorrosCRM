@@ -6,6 +6,7 @@ import { createCustomer, type CreateState } from "@/app/(app)/customers/new/acti
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PhoneInput } from "@/components/phone-input";
 import { Loader2 } from "lucide-react";
 
 function Field({
@@ -40,7 +41,7 @@ export function CustomerForm() {
         <Field name="businessName" label="Business name" />
         <Field name="corpName" label="Corporate name" />
         <Field name="email" label="Email" type="email" />
-        <Field name="storePhone" label="Phone" />
+        <PhoneInput name="storePhone" label="Phone" />
         <div className="space-y-1">
           <Label htmlFor="status">Status</Label>
           <select
