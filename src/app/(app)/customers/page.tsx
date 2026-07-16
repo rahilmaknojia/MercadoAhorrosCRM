@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { apiFetch } from "@/lib/server/api";
-import { formatPhone } from "@/lib/utils";
+import { cn, formatPhone } from "@/lib/utils";
 import type { Customer, PageInfo } from "@/lib/types";
 import {
   Table,
@@ -16,7 +16,20 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/status-badge";
 import { Can } from "@/components/permissions-provider";
-import { Plus, Search, Users } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronsUpDown,
+  Eye,
+  Pencil,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  Users,
+} from "lucide-react";
+
+const SORTABLE_FIELDS = new Set(["memberId", "contactName", "storeCity", "status"]);
+const PAGE_SIZE = 25;
 
 function initials(value?: string | null): string {
   const source = (value || "?").trim();
@@ -28,10 +41,31 @@ function initials(value?: string | null): string {
   );
 }
 
+// Compact page list with ellipses, e.g. 1 … 4 5 6 … 20.
+function pageWindow(current: number, total: number): (number | "gap")[] {
+  const shown = new Set<number>([1, total, current, current - 1, current + 1]);
+  const sorted = [...shown].filter((n) => n >= 1 && n <= total).sort((a, b) => a - b);
+  const out: (number | "gap")[] = [];
+  let prev = 0;
+  for (const n of sorted) {
+    if (n - prev > 1) out.push("gap");
+    out.push(n);
+    prev = n;
+  }
+  return out;
+}
+
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; meta?: string; filters?: string | string[] }>;
+  searchParams: Promise<{
+    q?: string;
+    meta?: string;
+    filters?: string | string[];
+    sort?: string;
+    dir?: string;
+    page?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
@@ -40,14 +74,22 @@ export default async function CustomersPage({
   const drillFilters = (Array.isArray(sp.filters) ? sp.filters : sp.filters ? [sp.filters] : [])
     .map((f) => f.trim())
     .filter(Boolean);
+  const sortField = SORTABLE_FIELDS.has(sp.sort ?? "") ? sp.sort! : "memberId";
+  const ascending = (sp.dir ?? "asc") !== "desc";
+  const pageNumber = Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1);
 
   const params = new URLSearchParams({
-    pageNumber: "1",
-    pageSize: "25",
-    sortField: "memberId",
-    ascending: "true",
+    pageNumber: String(pageNumber),
+    pageSize: String(PAGE_SIZE),
+    sortField,
+    ascending: String(ascending),
   });
-  if (q) params.append("filters", `businessName|contains|${q}`);
+  // Simple search: OR across the fields a user is likely to know a store by. Sent as a single
+  // filterGroup (clauses joined by ";;" are OR'd; separate groups AND). Drill filters stay AND.
+  if (q) {
+    const searchFields = ["memberId", "businessName", "contactName", "storeAddress", "storePhone", "email"];
+    params.append("filterGroups", searchFields.map((f) => `${f}|contains|${q}`).join(";;"));
+  }
   drillFilters.forEach((f) => params.append("filters", f));
   if (meta) params.append("metadataFilters", meta);
 
@@ -69,6 +111,40 @@ export default async function CustomersPage({
     error = "Failed to load customers.";
   }
 
+  // Build a members-list URL that preserves the current query, applying overrides.
+  const hrefWith = (overrides: { sort?: string; dir?: string; page?: number } = {}) => {
+    const usp = new URLSearchParams();
+    if (q) usp.set("q", q);
+    if (meta) usp.set("meta", meta);
+    drillFilters.forEach((f) => usp.append("filters", f));
+    const sort = overrides.sort ?? sortField;
+    const dir = overrides.dir ?? (ascending ? "asc" : "desc");
+    const pg = overrides.page ?? pageNumber;
+    if (sort !== "memberId") usp.set("sort", sort);
+    if (dir !== "asc") usp.set("dir", dir);
+    if (pg > 1) usp.set("page", String(pg));
+    const query = usp.toString();
+    return query ? `/customers?${query}` : "/customers";
+  };
+  // A sortable column header: toggles direction when already active, else ascending, resets page.
+  const sortHref = (field: string) =>
+    hrefWith({ sort: field, dir: sortField === field && ascending ? "desc" : "asc", page: 1 });
+  const SortHead = ({ field, label }: { field: string; label: string }) => {
+    const active = sortField === field;
+    return (
+      <TableHead>
+        <Link href={sortHref(field)} className="inline-flex items-center gap-1 hover:text-foreground">
+          {label}
+          {active ? (
+            ascending ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />
+          ) : (
+            <ChevronsUpDown className="size-3.5 opacity-40" />
+          )}
+        </Link>
+      </TableHead>
+    );
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -85,28 +161,43 @@ export default async function CustomersPage({
         </Can>
       </div>
 
-      <form
-        action="/customers"
-        className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3 shadow-xs"
-      >
-        <div className="relative min-w-0 flex-1 sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input name="q" defaultValue={q} placeholder="Search business name…" className="pl-8" />
+      <form action="/customers" className="space-y-3 rounded-xl border bg-card p-3 shadow-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              name="q"
+              defaultValue={q}
+              placeholder="Search member ID, business, contact, address, phone, or email…"
+              className="pl-8"
+            />
+          </div>
+          <Button type="submit" variant="secondary">
+            Search
+          </Button>
+          {(q || meta) && (
+            <Link href="/customers" className={buttonVariants({ variant: "ghost" })}>
+              Clear
+            </Link>
+          )}
         </div>
-        <Input
-          name="meta"
-          defaultValue={meta}
-          placeholder="metadata filter, e.g. gas.brand|eq|Shell"
-          className="min-w-0 flex-1 sm:max-w-sm"
-        />
-        <Button type="submit" variant="secondary">
-          Search
-        </Button>
-        {(q || meta) && (
-          <Link href="/customers" className={buttonVariants({ variant: "ghost" })}>
-            Clear
-          </Link>
-        )}
+        <details open={Boolean(meta)}>
+          <summary className="w-fit cursor-pointer list-none text-xs font-medium text-muted-foreground transition-colors select-none hover:text-foreground">
+            <span className="inline-flex items-center gap-1">
+              <SlidersHorizontal className="size-3.5" /> Advanced filter
+            </span>
+          </summary>
+          <div className="mt-2 space-y-1">
+            <Input
+              name="meta"
+              defaultValue={meta}
+              placeholder="store metadata filter, e.g. coolers.standing.coke|exists"
+            />
+            <p className="text-xs text-muted-foreground">
+              Path|operator|value on store metadata. Operators: eq, contains, exists, gt, gte, lt, lte, between.
+            </p>
+          </div>
+        </details>
       </form>
 
       {drillFilters.length > 0 && (
@@ -131,61 +222,163 @@ export default async function CustomersPage({
           {error}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead>Member</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead>Location</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {customers.length === 0 ? (
+        <>
+          <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
+            <Table>
+              <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={5} className="h-40 text-center">
-                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <Users className="size-8 opacity-40" />
-                      <p className="text-sm">No customers found.</p>
-                    </div>
-                  </TableCell>
+                  <SortHead field="memberId" label="Member" />
+                  <SortHead field="contactName" label="Contact" />
+                  <SortHead field="storeCity" label="Location" />
+                  <TableHead>Phone</TableHead>
+                  <SortHead field="status" label="Status" />
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ) : (
-                customers.map((c) => (
-                  <TableRow key={c.id} className="group">
-                    <TableCell>
-                      <Link href={`/customers/${c.id}`} className="flex items-center gap-3">
-                        <Avatar className="size-9 border">
-                          <AvatarFallback className="text-xs font-medium">
-                            {initials(c.businessName || c.contactName)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0">
-                          <div className="truncate font-medium group-hover:underline">
-                            {c.businessName || c.contactName || "—"}
-                          </div>
-                          <div className="font-mono text-xs text-muted-foreground">{c.memberId}</div>
-                        </div>
-                      </Link>
-                    </TableCell>
-                    <TableCell>{c.contactName || "—"}</TableCell>
-                    <TableCell>
-                      {[c.storeCity, c.storeState].filter(Boolean).join(", ") || "—"}
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      {formatPhone(c.storePhone) || c.storePhone || "—"}
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={c.status} />
+              </TableHeader>
+              <TableBody>
+                {customers.length === 0 ? (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={6} className="h-40 text-center">
+                      <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                        <Users className="size-8 opacity-40" />
+                        <p className="text-sm">No customers found.</p>
+                      </div>
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+                ) : (
+                  customers.map((c) => (
+                    <TableRow key={c.id} className="group">
+                      <TableCell>
+                        <Link href={`/customers/${c.id}`} className="flex items-center gap-3">
+                          <Avatar className="size-9 border">
+                            <AvatarFallback className="text-xs font-medium">
+                              {initials(c.businessName || c.contactName)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <div className="truncate font-medium group-hover:underline">
+                              {c.businessName || c.contactName || "—"}
+                            </div>
+                            <div className="font-mono text-xs text-muted-foreground">{c.memberId}</div>
+                          </div>
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <div className="min-w-0">
+                          <div className="truncate">{c.contactName || "—"}</div>
+                          {c.email && (
+                            <div className="truncate text-xs text-muted-foreground">{c.email}</div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="min-w-0">
+                          <div className="truncate">{c.storeAddress || "—"}</div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {[c.storeCity, c.storeState].filter(Boolean).join(", ")}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="tabular-nums">
+                        {formatPhone(c.storePhone) || c.storePhone || "—"}
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={c.status} />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                          <Link
+                            href={`/customers/${c.id}`}
+                            aria-label="View member"
+                            className={buttonVariants({ variant: "ghost", size: "icon-sm" })}
+                          >
+                            <Eye />
+                          </Link>
+                          <Can permission="customers:update">
+                            <Link
+                              href={`/customers/${c.id}/edit`}
+                              aria-label="Edit member"
+                              className={buttonVariants({ variant: "ghost", size: "icon-sm" })}
+                            >
+                              <Pencil />
+                            </Link>
+                          </Can>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          {page && page.TotalPages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                Page {pageNumber} of {page.TotalPages} · {page.TotalCount.toLocaleString()} total
+              </p>
+              <div className="flex items-center gap-1">
+                {page.HasPreviousPage ? (
+                  <Link
+                    href={hrefWith({ page: pageNumber - 1 })}
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                  >
+                    Previous
+                  </Link>
+                ) : (
+                  <span
+                    className={cn(
+                      buttonVariants({ variant: "outline", size: "sm" }),
+                      "pointer-events-none opacity-50"
+                    )}
+                  >
+                    Previous
+                  </span>
+                )}
+                {pageWindow(pageNumber, page.TotalPages).map((n, i) =>
+                  n === "gap" ? (
+                    <span key={`gap-${i}`} className="px-1 text-sm text-muted-foreground">
+                      …
+                    </span>
+                  ) : n === pageNumber ? (
+                    <span
+                      key={n}
+                      aria-current="page"
+                      className={cn(buttonVariants({ variant: "secondary", size: "icon-sm" }), "pointer-events-none")}
+                    >
+                      {n}
+                    </span>
+                  ) : (
+                    <Link
+                      key={n}
+                      href={hrefWith({ page: n })}
+                      className={buttonVariants({ variant: "ghost", size: "icon-sm" })}
+                    >
+                      {n}
+                    </Link>
+                  )
+                )}
+                {page.HasNextPage ? (
+                  <Link
+                    href={hrefWith({ page: pageNumber + 1 })}
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                  >
+                    Next
+                  </Link>
+                ) : (
+                  <span
+                    className={cn(
+                      buttonVariants({ variant: "outline", size: "sm" }),
+                      "pointer-events-none opacity-50"
+                    )}
+                  >
+                    Next
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
