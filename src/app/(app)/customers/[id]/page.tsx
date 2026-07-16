@@ -65,17 +65,24 @@ function InfoCard({
   title,
   children,
   contentClassName,
+  iconClassName,
 }: {
   icon: LucideIcon;
   title: string;
   children: React.ReactNode;
   contentClassName?: string;
+  iconClassName?: string;
 }) {
   return (
     <Card className="shadow-xs">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <span className="inline-flex size-7 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <span
+            className={cn(
+              "inline-flex size-7 items-center justify-center rounded-lg",
+              iconClassName ?? "bg-muted text-muted-foreground"
+            )}
+          >
             <Icon className="size-4" />
           </span>
           {title}
@@ -217,7 +224,7 @@ export default async function CustomerDetailPage({
   const overview = (
     <>
       <div className="grid gap-4 md:grid-cols-2">
-        <InfoCard icon={User} title="Contact" contentClassName="divide-y">
+        <InfoCard icon={User} title="Contact" contentClassName="divide-y" iconClassName="bg-blue-50 text-blue-600">
           <CopyField label="Contact name" value={customer.contactName} />
           <Field label="Title" value={customer.personTitle} />
           <CopyField label="Business" value={customer.businessName} />
@@ -228,7 +235,7 @@ export default async function CustomerDetailPage({
           <Field label="Fax" value={formatPhone(customer.storeFax) || customer.storeFax} />
         </InfoCard>
 
-        <InfoCard icon={Store} title="Store information" contentClassName="divide-y">
+        <InfoCard icon={Store} title="Store information" contentClassName="divide-y" iconClassName="bg-amber-50 text-amber-600">
           <CopyField label="Address" value={customer.storeAddress} />
           <Field label="City" value={customer.storeCity} />
           <Field label="State" value={customer.storeState} />
@@ -243,7 +250,7 @@ export default async function CustomerDetailPage({
           <Field label="Federal tax ID" value={customer.federalTaxId} />
         </InfoCard>
 
-        <InfoCard icon={MapPin} title="Territory" contentClassName="divide-y">
+        <InfoCard icon={MapPin} title="Territory" contentClassName="divide-y" iconClassName="bg-emerald-50 text-emerald-600">
           <Field label="Region" value={customer.region} />
           <Field label="District" value={customer.district} />
           <Field label="Zone no." value={customer.zoneNo} />
@@ -251,7 +258,7 @@ export default async function CustomerDetailPage({
           <Field label="Store group" value={customer.storeGroup} />
         </InfoCard>
 
-        <InfoCard icon={BadgeCheck} title="Status &amp; identifiers" contentClassName="divide-y">
+        <InfoCard icon={BadgeCheck} title="Status &amp; identifiers" contentClassName="divide-y" iconClassName="bg-violet-50 text-violet-600">
           <Field label="Status" value={customer.status} />
           <Field label="Date joined" value={fmtDate(customer.dateJoined)} />
           <Field label="Date inactive" value={customer.dateInactive ? fmtDate(customer.dateInactive) : null} />

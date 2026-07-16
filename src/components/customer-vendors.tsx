@@ -162,11 +162,11 @@ export function CustomerVendors({
                             className={cn(
                               "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium",
                               isSelected
-                                ? "border-transparent bg-primary/10 text-foreground"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                                 : "border-dashed border-border text-muted-foreground/70"
                             )}
                           >
-                            {isSelected && <Check className="size-3 text-primary" />}
+                            {isSelected && <Check className="size-3 text-emerald-600" />}
                             {vendor.name}
                           </span>
                         );
