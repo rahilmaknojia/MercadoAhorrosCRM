@@ -57,7 +57,7 @@ export function CopyField({
 }) {
   if (!value) return null;
   return (
-    <div className="group flex items-center justify-between gap-4 py-1 text-sm">
+    <div className="group flex items-center justify-between gap-4 py-1.5 text-sm">
       <span className="text-muted-foreground">{label}</span>
       {/* Icon sits left of the value so the value's right edge aligns with the plain (non-copy)
           rows; the reserved icon width no longer pushes the text inward. */}

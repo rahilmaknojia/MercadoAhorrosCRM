@@ -19,8 +19,19 @@ import { CustomerCoolers } from "@/components/customer-coolers";
 import { CustomerVendors } from "@/components/customer-vendors";
 import { MemberTabs } from "@/components/member-tabs";
 import { CopyButton, CopyField } from "@/components/copy-field";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn, formatPhone } from "@/lib/utils";
-import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
+import {
+  BadgeCheck,
+  ChevronLeft,
+  ChevronRight,
+  MapPin,
+  MessageSquare,
+  Pencil,
+  Store,
+  User,
+  type LucideIcon,
+} from "lucide-react";
 
 function fmtDate(iso?: string | null): string {
   if (!iso) return "—";
@@ -35,10 +46,43 @@ function fmtDate(iso?: string | null): string {
 function Field({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
   return (
-    <div className="flex justify-between gap-4 py-1 text-sm">
+    <div className="flex justify-between gap-4 py-1.5 text-sm">
       <span className="text-muted-foreground">{label}</span>
       <span className="text-right font-medium">{value}</span>
     </div>
+  );
+}
+
+function initials(value?: string | null): string {
+  const source = (value || "?").trim();
+  const [a, b] = source.split(/\s+/);
+  return ((a?.[0] ?? "") + (b?.[0] ?? "")).toUpperCase() || source[0]?.toUpperCase() || "?";
+}
+
+/** A titled card with a tinted leading icon — the shared shape for the overview sections. */
+function InfoCard({
+  icon: Icon,
+  title,
+  children,
+  contentClassName,
+}: {
+  icon: LucideIcon;
+  title: string;
+  children: React.ReactNode;
+  contentClassName?: string;
+}) {
+  return (
+    <Card className="shadow-xs">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <span className="inline-flex size-7 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+            <Icon className="size-4" />
+          </span>
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className={contentClassName}>{children}</CardContent>
+    </Card>
   );
 }
 
@@ -173,78 +217,53 @@ export default async function CustomerDetailPage({
   const overview = (
     <>
       <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Contact</CardTitle>
-          </CardHeader>
-          <CardContent className="divide-y">
-            <CopyField label="Contact name" value={customer.contactName} />
-            <Field label="Title" value={customer.personTitle} />
-            <CopyField label="Business" value={customer.businessName} />
-            <CopyField label="Corporate" value={customer.corpName} />
-            <CopyField label="Email" value={customer.email} />
-            <CopyField label="Store phone" value={formatPhone(customer.storePhone) || customer.storePhone} />
-            <CopyField label="Cell phone" value={formatPhone(customer.cellPhone) || customer.cellPhone} />
-            <Field label="Fax" value={formatPhone(customer.storeFax) || customer.storeFax} />
-          </CardContent>
-        </Card>
+        <InfoCard icon={User} title="Contact" contentClassName="divide-y">
+          <CopyField label="Contact name" value={customer.contactName} />
+          <Field label="Title" value={customer.personTitle} />
+          <CopyField label="Business" value={customer.businessName} />
+          <CopyField label="Corporate" value={customer.corpName} />
+          <CopyField label="Email" value={customer.email} />
+          <CopyField label="Store phone" value={formatPhone(customer.storePhone) || customer.storePhone} />
+          <CopyField label="Cell phone" value={formatPhone(customer.cellPhone) || customer.cellPhone} />
+          <Field label="Fax" value={formatPhone(customer.storeFax) || customer.storeFax} />
+        </InfoCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Store information</CardTitle>
-          </CardHeader>
-          <CardContent className="divide-y">
-            <CopyField label="Address" value={customer.storeAddress} />
-            <Field label="City" value={customer.storeCity} />
-            <Field label="State" value={customer.storeState} />
-            <Field label="ZIP" value={customer.storeZipcode} />
-            <CopyField
-              label="Mailing"
-              value={[customer.mailingAddress, customer.mailingCity, customer.mailingState, customer.mailingZipcode]
-                .filter(Boolean)
-                .join(", ")}
-            />
-            <Field label="Sales tax ID" value={customer.salesTaxId} />
-            <Field label="Federal tax ID" value={customer.federalTaxId} />
-          </CardContent>
-        </Card>
+        <InfoCard icon={Store} title="Store information" contentClassName="divide-y">
+          <CopyField label="Address" value={customer.storeAddress} />
+          <Field label="City" value={customer.storeCity} />
+          <Field label="State" value={customer.storeState} />
+          <Field label="ZIP" value={customer.storeZipcode} />
+          <CopyField
+            label="Mailing"
+            value={[customer.mailingAddress, customer.mailingCity, customer.mailingState, customer.mailingZipcode]
+              .filter(Boolean)
+              .join(", ")}
+          />
+          <Field label="Sales tax ID" value={customer.salesTaxId} />
+          <Field label="Federal tax ID" value={customer.federalTaxId} />
+        </InfoCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Territory</CardTitle>
-          </CardHeader>
-          <CardContent className="divide-y">
-            <Field label="Region" value={customer.region} />
-            <Field label="District" value={customer.district} />
-            <Field label="Zone no." value={customer.zoneNo} />
-            <Field label="Zone manager" value={customer.zoneManager} />
-            <Field label="Store group" value={customer.storeGroup} />
-          </CardContent>
-        </Card>
+        <InfoCard icon={MapPin} title="Territory" contentClassName="divide-y">
+          <Field label="Region" value={customer.region} />
+          <Field label="District" value={customer.district} />
+          <Field label="Zone no." value={customer.zoneNo} />
+          <Field label="Zone manager" value={customer.zoneManager} />
+          <Field label="Store group" value={customer.storeGroup} />
+        </InfoCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Status &amp; identifiers</CardTitle>
-          </CardHeader>
-          <CardContent className="divide-y">
-            <Field label="Status" value={customer.status} />
-            <Field label="Date joined" value={fmtDate(customer.dateJoined)} />
-            <Field label="Date inactive" value={customer.dateInactive ? fmtDate(customer.dateInactive) : null} />
-            <Field label="Inactive reason" value={customer.inactiveReason} />
-            <Field label="Signed by" value={customer.signedBy} />
-          </CardContent>
-        </Card>
+        <InfoCard icon={BadgeCheck} title="Status &amp; identifiers" contentClassName="divide-y">
+          <Field label="Status" value={customer.status} />
+          <Field label="Date joined" value={fmtDate(customer.dateJoined)} />
+          <Field label="Date inactive" value={customer.dateInactive ? fmtDate(customer.dateInactive) : null} />
+          <Field label="Inactive reason" value={customer.inactiveReason} />
+          <Field label="Signed by" value={customer.signedBy} />
+        </InfoCard>
       </div>
 
       {customer.comments && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Comments</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="whitespace-pre-wrap text-sm">{customer.comments}</p>
-          </CardContent>
-        </Card>
+        <InfoCard icon={MessageSquare} title="Comments">
+          <p className="whitespace-pre-wrap text-sm">{customer.comments}</p>
+        </InfoCard>
       )}
 
       {/* Whatever else lives in the document and has no dedicated UI yet. */}
@@ -269,13 +288,19 @@ export default async function CustomerDetailPage({
           ← Back to customers
         </Link>
         <div className="mt-1 flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-xl font-semibold">
-                {customer.businessName || customer.contactName}
-              </h1>
-              <StatusBadge status={customer.status} />
-            </div>
+          <div className="flex min-w-0 items-center gap-3">
+            <Avatar className="size-12 shrink-0 border">
+              <AvatarFallback className="text-sm font-medium">
+                {initials(customer.businessName || customer.contactName)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="truncate text-xl font-semibold">
+                  {customer.businessName || customer.contactName}
+                </h1>
+                <StatusBadge status={customer.status} />
+              </div>
             <p className="mt-0.5 flex flex-wrap items-center text-sm text-muted-foreground">
               <span className="group inline-flex items-center gap-1 font-medium">
                 {customer.memberId}
@@ -291,7 +316,8 @@ export default async function CustomerDetailPage({
                   {part}
                 </span>
               ))}
-            </p>
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {/* Step through members in list order; disabled at the ends. */}
