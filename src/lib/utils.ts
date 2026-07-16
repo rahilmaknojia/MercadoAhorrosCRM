@@ -11,6 +11,16 @@ export function cn(...inputs: ClassValue[]) {
  * rest. Partial input is formatted as far as it goes, so this also drives live input masking.
  * A value with no digits comes back empty — callers fall back to the raw value for display.
  */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+/** `"2025-01"` -> `"Jan '25"`. Leaves anything that isn't a yyyy-MM key untouched. */
+export function formatMonthKey(key: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(key)
+  if (!m) return key
+  const month = MONTHS[Number(m[2]) - 1]
+  return month ? `${month} '${m[1].slice(2)}` : key
+}
+
 export function formatPhone(value?: string | null): string {
   if (!value) return ""
   let digits = value.replace(/\D/g, "")

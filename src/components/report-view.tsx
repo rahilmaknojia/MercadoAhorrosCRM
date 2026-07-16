@@ -41,7 +41,7 @@ import {
 } from "@/components/ui/table";
 import { Loader2 } from "lucide-react";
 
-const COLORS = [
+export const COLORS = [
   "#e11d2e",
   "#ffb000",
   "#1f9d55",
