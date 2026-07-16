@@ -23,6 +23,9 @@ type Kind = "donut" | "bar" | "barh";
  *  - "bar":   vertical bars (use for time series, many buckets).
  *  - "barh":  horizontal bars (use for a handful of named categories).
  */
+// Calm default for single-series bars — keeps the brand red for status/primary actions only.
+const BAR_COLOR = "#3b82f6";
+
 export function AggregateChart({
   title,
   data,
@@ -30,6 +33,7 @@ export function AggregateChart({
   className,
   formatKey,
   color,
+  colorMap,
 }: {
   title: string;
   data: AggregateBucket[];
@@ -38,11 +42,14 @@ export function AggregateChart({
   /** How to render bucket keys as labels. Serializable so it can cross the server->client boundary. */
   formatKey?: "month";
   color?: string;
+  /** Optional per-key colors (lowercased key -> hex), e.g. semantic status colors on the donut. */
+  colorMap?: Record<string, string>;
 }) {
   const fmt = formatKey === "month" ? formatMonthKey : (k: string) => k;
   const rows = data.map((b) => ({ ...b, label: fmt(b.key || "(none)") }));
   const total = rows.reduce((t, r) => t + r.count, 0);
-  const barColor = color ?? COLORS[0];
+  const barColor = color ?? BAR_COLOR;
+  const sliceColor = (key: string, i: number) => colorMap?.[key.toLowerCase()] ?? COLORS[i % COLORS.length];
 
   return (
     <div className={cn("rounded-xl border bg-card p-4 shadow-xs", className)}>
@@ -58,8 +65,8 @@ export function AggregateChart({
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={rows} dataKey="count" nameKey="label" innerRadius={52} outerRadius={72} paddingAngle={2}>
-                  {rows.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="var(--card)" />
+                  {rows.map((r, i) => (
+                    <Cell key={i} fill={sliceColor(r.key, i)} stroke="var(--card)" />
                   ))}
                 </Pie>
                 <Tooltip />
@@ -75,7 +82,7 @@ export function AggregateChart({
               <li key={r.key} className="flex items-center gap-2">
                 <span
                   className="size-2.5 shrink-0 rounded-full"
-                  style={{ background: COLORS[i % COLORS.length] }}
+                  style={{ background: sliceColor(r.key, i) }}
                 />
                 <span className="flex-1 truncate">{r.label}</span>
                 <span className="tabular-nums text-muted-foreground">{r.count.toLocaleString()}</span>

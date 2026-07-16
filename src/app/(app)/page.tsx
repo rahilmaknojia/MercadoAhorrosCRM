@@ -90,7 +90,12 @@ export default async function DashboardPage() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <AggregateChart title="Members by status" kind="donut" data={statusBuckets} />
+            <AggregateChart
+              title="Members by status"
+              kind="donut"
+              data={statusBuckets}
+              colorMap={{ active: "#16a34a", pending: "#f59e0b", inactive: "#dc2626" }}
+            />
             <AggregateChart title="Signups by month" kind="bar" data={monthBuckets} formatKey="month" />
             <AggregateChart title="Members by district" kind="barh" data={districtBuckets} />
             <AggregateChart title="Members by region" kind="barh" data={regionBuckets} />
