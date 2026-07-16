@@ -109,9 +109,15 @@ export function ReportBuilder({
   const [preview, setPreview] = useState<ReportDefinition | null>(def ?? null);
   const [saving, startSaving] = useTransition();
 
-  // Load the grouped vendor catalogue the first time the vendor source is selected.
+  // Load the grouped vendor catalogue when the vendor source is selected.
+  //
+  // Depends on `source` alone. It previously also depended on the very state it sets
+  // (vendorsLoading / vendorGroups.length), which made it self-invalidating: setVendorsLoading(true)
+  // changed a dependency, so the effect re-ran, its cleanup set active=false on the in-flight
+  // request, and the guard then returned early — so when the fetch resolved, both setVendorGroups
+  // and setVendorsLoading(false) were skipped and the picker sat on "Loading vendors…" forever.
   useEffect(() => {
-    if (source !== "customer-vendor" || vendorGroups.length > 0 || vendorsLoading) return;
+    if (source !== "customer-vendor") return;
     let active = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setVendorsLoading(true);
@@ -129,7 +135,7 @@ export function ReportBuilder({
     return () => {
       active = false;
     };
-  }, [source, vendorGroups.length, vendorsLoading]);
+  }, [source]);
 
   function toggleVendor(code: string, checked: boolean) {
     setVendorCodes((prev) => (checked ? [...new Set([...prev, code])] : prev.filter((c) => c !== code)));

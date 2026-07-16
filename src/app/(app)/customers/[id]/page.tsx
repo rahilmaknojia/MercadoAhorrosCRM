@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { apiFetch } from "@/lib/server/api";
-import type {
-  CoolerDocument,
-  Customer,
-  CustomerVendorSelectionGroup,
-  MasterDataItem,
-  StoreMetadata,
+import {
+  COOLER_TYPES,
+  type CoolerDocument,
+  type Customer,
+  type CustomerVendorSelectionGroup,
+  type MasterDataItem,
+  type StoreMetadata,
 } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import { CustomerPhotos } from "@/components/customer-photos";
 import { CustomerActivity } from "@/components/customer-activity";
 import { CustomerCoolers } from "@/components/customer-coolers";
 import { CustomerVendors } from "@/components/customer-vendors";
+import { MemberTabs } from "@/components/member-tabs";
 import { Pencil } from "lucide-react";
 
 function statusVariant(status: string): "default" | "secondary" | "outline" {
@@ -120,31 +122,30 @@ export default async function CustomerDetailPage({
     }
   }
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <Link href="/customers" className="text-sm text-muted-foreground hover:underline">
-          ← Back to customers
-        </Link>
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold">
-              {customer.businessName || customer.contactName}
-            </h1>
-            <Badge variant={statusVariant(customer.status)}>{customer.status}</Badge>
-          </div>
-          <Can permission="customers:update">
-            <Link
-              href={`/customers/${customer.id}/edit`}
-              className={buttonVariants({ variant: "outline" })}
-            >
-              <Pencil /> Edit
-            </Link>
-          </Can>
-        </div>
-        <p className="text-sm text-muted-foreground">Member {customer.memberId}</p>
-      </div>
+  // Counts shown on the tab labels so the page advertises what's inside before you click.
+  const coolerCount = COOLER_TYPES.reduce(
+    (total, { key }) =>
+      total +
+      Object.values(coolerDoc.coolers?.[key] ?? {}).reduce(
+        (n, packages) => n + Object.keys(packages ?? {}).length,
+        0
+      ),
+    0
+  );
+  const vendorCount = vendorGroups.reduce(
+    (n, g) => n + g.vendors.filter((v) => v.isSelected).length,
+    0
+  );
 
+  // The facts worth seeing without opening a tab: who/where/which territory.
+  const summary = [
+    [customer.storeCity, customer.storeState].filter(Boolean).join(", "),
+    customer.region,
+    customer.contactName,
+  ].filter(Boolean);
+
+  const overview = (
+    <>
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -220,16 +221,6 @@ export default async function CustomerDetailPage({
         </Card>
       )}
 
-      <CustomerVendors customerId={customer.id} groups={vendorGroups} />
-
-      <CustomerCoolers
-        customerId={customer.id}
-        document={coolerDoc}
-        brands={brands}
-        packages={packages}
-        sharedCoolers={sharedCoolers}
-      />
-
       {/* Whatever else lives in the document and has no dedicated UI yet. */}
       {metaJson && (
         <Card>
@@ -241,14 +232,83 @@ export default async function CustomerDetailPage({
           </CardContent>
         </Card>
       )}
+    </>
+  );
 
-      <CustomerPhotos
-        memberId={customer.memberId}
-        customerId={customer.id}
-        initialCaptions={photoCaptions}
+  return (
+    <div className="space-y-4">
+      {/* Sticky so the member you're looking at, and Edit, stay reachable while scrolling a tab. */}
+      <div className="sticky top-0 z-20 -mx-4 border-b border-border bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <Link href="/customers" className="text-xs text-muted-foreground hover:underline">
+          ← Back to customers
+        </Link>
+        <div className="mt-1 flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="truncate text-xl font-semibold">
+                {customer.businessName || customer.contactName}
+              </h1>
+              <Badge variant={statusVariant(customer.status)}>{customer.status}</Badge>
+            </div>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {customer.memberId}
+              {summary.map((part) => (
+                <span key={part}>
+                  <span className="px-1.5 text-border">·</span>
+                  {part}
+                </span>
+              ))}
+            </p>
+          </div>
+          <Can permission="customers:update">
+            <Link
+              href={`/customers/${customer.id}/edit`}
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
+              <Pencil /> Edit
+            </Link>
+          </Can>
+        </div>
+      </div>
+
+      <MemberTabs
+        tabs={[
+          { value: "overview", label: "Overview", content: overview },
+          {
+            value: "equipment",
+            label: "Vendors & coolers",
+            count: vendorCount + coolerCount,
+            content: (
+              <>
+                <CustomerVendors customerId={customer.id} groups={vendorGroups} />
+                <CustomerCoolers
+                  customerId={customer.id}
+                  document={coolerDoc}
+                  brands={brands}
+                  packages={packages}
+                  sharedCoolers={sharedCoolers}
+                />
+              </>
+            ),
+          },
+          {
+            value: "photos",
+            label: "Photos",
+            content: (
+              <CustomerPhotos
+                memberId={customer.memberId}
+                customerId={customer.id}
+                initialCaptions={photoCaptions}
+              />
+            ),
+          },
+          {
+            value: "activity",
+            label: "Activity",
+            content: <CustomerActivity customerId={customer.id} />,
+          },
+        ]}
       />
-
-      <CustomerActivity customerId={customer.id} />
     </div>
   );
 }
