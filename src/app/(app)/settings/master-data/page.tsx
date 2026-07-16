@@ -22,7 +22,7 @@ export default async function MasterDataPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold">Master data</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Master data</h1>
         <p className="text-sm text-muted-foreground">
           Curated territory values (which power the customer form&apos;s suggestions) and cooler
           catalogue values (which power the cooler picker). Disabling hides a value from new
