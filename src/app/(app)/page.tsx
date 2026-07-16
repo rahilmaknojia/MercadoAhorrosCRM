@@ -6,7 +6,6 @@ import { StatCard } from "@/components/dashboard/stat-card";
 import { AggregateChart } from "@/components/dashboard/aggregate-chart";
 import { apiFetch } from "@/lib/server/api";
 import { parseDefinition } from "@/lib/report";
-import { formatMonthKey } from "@/lib/utils";
 import type { AggregateBucket, ReportDefinition, ReportPreset } from "@/lib/types";
 import { BarChart3, CircleCheck, CircleMinus, Clock, TrendingUp, Users } from "lucide-react";
 
@@ -92,12 +91,7 @@ export default async function DashboardPage() {
 
           <div className="grid gap-4 lg:grid-cols-2">
             <AggregateChart title="Members by status" kind="donut" data={statusBuckets} />
-            <AggregateChart
-              title="Signups by month"
-              kind="bar"
-              data={monthBuckets}
-              labelFormatter={formatMonthKey}
-            />
+            <AggregateChart title="Signups by month" kind="bar" data={monthBuckets} formatKey="month" />
             <AggregateChart title="Members by district" kind="barh" data={districtBuckets} />
             <AggregateChart title="Members by region" kind="barh" data={regionBuckets} />
           </div>

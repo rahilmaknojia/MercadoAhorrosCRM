@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import type { AggregateBucket } from "@/lib/types";
 import { COLORS } from "@/components/report-view";
-import { cn } from "@/lib/utils";
+import { cn, formatMonthKey } from "@/lib/utils";
 
 type Kind = "donut" | "bar" | "barh";
 
@@ -28,17 +28,18 @@ export function AggregateChart({
   data,
   kind,
   className,
-  labelFormatter,
+  formatKey,
   color,
 }: {
   title: string;
   data: AggregateBucket[];
   kind: Kind;
   className?: string;
-  labelFormatter?: (key: string) => string;
+  /** How to render bucket keys as labels. Serializable so it can cross the server->client boundary. */
+  formatKey?: "month";
   color?: string;
 }) {
-  const fmt = labelFormatter ?? ((k: string) => k);
+  const fmt = formatKey === "month" ? formatMonthKey : (k: string) => k;
   const rows = data.map((b) => ({ ...b, label: fmt(b.key || "(none)") }));
   const total = rows.reduce((t, r) => t + r.count, 0);
   const barColor = color ?? COLORS[0];
