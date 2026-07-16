@@ -60,7 +60,7 @@ export default async function ReportsPage() {
             const def = parseDefinition(p.queryParameters);
             return (
               <Link key={p.id} href={`/reports/${p.id}`} className="block">
-                <Card className="h-full transition-colors hover:bg-muted/50">
+                <Card className="h-full shadow-xs transition-all hover:border-primary/30 hover:shadow-sm">
                   <CardHeader>
                     <div className="flex items-start justify-between gap-2">
                       <CardTitle className="text-base">{p.name}</CardTitle>

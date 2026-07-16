@@ -147,7 +147,7 @@ function CustomerReportView({ definition }: { definition: ReportDefinition }) {
   if (viz === "metric") {
     const sum = buckets.reduce((t, b) => t + b.count, 0);
     return (
-      <div className="rounded-lg border p-6">
+      <div className="rounded-xl border bg-card p-6 shadow-xs">
         <div className="text-4xl font-semibold tabular-nums">{sum.toLocaleString()}</div>
         <div className="mt-1 text-sm text-muted-foreground">
           matching records{definition.groupBy ? ` · grouped by ${fieldLabel(definition.groupBy)}` : ""}
@@ -244,7 +244,7 @@ function CustomerReportView({ definition }: { definition: ReportDefinition }) {
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">{total} matching record(s)</p>
-      <div className="rounded-md border">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
         <Table>
           <TableHeader>
             <TableRow>
@@ -339,7 +339,7 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">{total} matching customer(s)</p>
-      <div className="rounded-md border">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
         <Table>
           <TableHeader>
             <TableRow>
