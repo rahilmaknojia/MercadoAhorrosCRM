@@ -19,7 +19,7 @@ const COLLAPSE_KEY = "crm.sidebar.collapsed";
 
 function NavLinks({ collapsed, pathname }: { collapsed: boolean; pathname: string }) {
   return (
-    <nav className="flex flex-1 flex-col gap-1 p-3">
+    <nav className="flex flex-1 flex-col gap-1.5 p-4">
       {NAV.map(({ href, label, icon: Icon }) => {
         const active = pathname === href || pathname.startsWith(`${href}/`);
         return (
@@ -28,16 +28,16 @@ function NavLinks({ collapsed, pathname }: { collapsed: boolean; pathname: strin
             href={href}
             title={collapsed ? label : undefined}
             className={cn(
-              "group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              "group relative flex items-center gap-3 rounded-lg px-3.5 py-3 text-[15px] font-medium transition-colors",
               collapsed && "justify-center px-0",
               active ? "bg-white/10 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-white"
             )}
           >
             {/* Yellow active marker — the logo's accent color. */}
             {active && (
-              <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r bg-brand-yellow" />
+              <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r bg-brand-yellow" />
             )}
-            <Icon className="size-4 shrink-0" />
+            <Icon className="size-5 shrink-0" />
             {!collapsed && <span className="truncate">{label}</span>}
           </Link>
         );
@@ -51,8 +51,8 @@ function SidebarBody({ collapsed, pathname }: { collapsed: boolean; pathname: st
     <div className="flex h-full flex-col bg-zinc-950 text-zinc-100">
       <div
         className={cn(
-          "flex h-20 items-center border-b border-white/10 px-4",
-          collapsed && "justify-center px-0"
+          "flex items-center justify-center border-b border-white/10 px-3",
+          collapsed ? "h-20" : "h-28"
         )}
       >
         <Link href="/" className="flex items-center overflow-hidden" aria-label="Mercado Ahorros home">
@@ -62,7 +62,7 @@ function SidebarBody({ collapsed, pathname }: { collapsed: boolean; pathname: st
             width={1027}
             height={562}
             priority
-            className={cn("w-auto", collapsed ? "h-9" : "h-14")}
+            className={cn("w-auto", collapsed ? "h-10" : "h-20")}
           />
         </Link>
       </div>

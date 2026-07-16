@@ -10,23 +10,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/status-badge";
+import { CustomerFilterBuilder, parseConditions } from "@/components/customer-filter-builder";
 import { Can } from "@/components/permissions-provider";
-import {
-  ArrowDown,
-  ArrowUp,
-  ChevronsUpDown,
-  Eye,
-  Pencil,
-  Plus,
-  Search,
-  SlidersHorizontal,
-  Users,
-} from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Eye, Pencil, Plus, Search, Users } from "lucide-react";
 
 const SORTABLE_FIELDS = new Set(["memberId", "contactName", "storeCity", "status"]);
 const PAGE_SIZE = 25;
@@ -60,7 +50,7 @@ export default async function CustomersPage({
 }: {
   searchParams: Promise<{
     q?: string;
-    meta?: string;
+    meta?: string | string[];
     filters?: string | string[];
     sort?: string;
     dir?: string;
@@ -69,11 +59,15 @@ export default async function CustomersPage({
 }) {
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
-  const meta = (sp.meta ?? "").trim();
-  // Generic typed filters (field|op|value), e.g. from a report drill-through.
+  // Typed field filters (field|op|value) and store-metadata filters (path|op|value); both come
+  // from the advanced filter builder (and field filters also from report drill-through).
   const drillFilters = (Array.isArray(sp.filters) ? sp.filters : sp.filters ? [sp.filters] : [])
     .map((f) => f.trim())
     .filter(Boolean);
+  const metaFilters = (Array.isArray(sp.meta) ? sp.meta : sp.meta ? [sp.meta] : [])
+    .map((m) => m.trim())
+    .filter(Boolean);
+  const initialConditions = parseConditions(drillFilters, metaFilters);
   const sortField = SORTABLE_FIELDS.has(sp.sort ?? "") ? sp.sort! : "memberId";
   const ascending = (sp.dir ?? "asc") !== "desc";
   const pageNumber = Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1);
@@ -91,7 +85,7 @@ export default async function CustomersPage({
     params.append("filterGroups", searchFields.map((f) => `${f}|contains|${q}`).join(";;"));
   }
   drillFilters.forEach((f) => params.append("filters", f));
-  if (meta) params.append("metadataFilters", meta);
+  metaFilters.forEach((m) => params.append("metadataFilters", m));
 
   let customers: Customer[] = [];
   let page: PageInfo | null = null;
@@ -115,7 +109,7 @@ export default async function CustomersPage({
   const hrefWith = (overrides: { sort?: string; dir?: string; page?: number } = {}) => {
     const usp = new URLSearchParams();
     if (q) usp.set("q", q);
-    if (meta) usp.set("meta", meta);
+    metaFilters.forEach((m) => usp.append("meta", m));
     drillFilters.forEach((f) => usp.append("filters", f));
     const sort = overrides.sort ?? sortField;
     const dir = overrides.dir ?? (ascending ? "asc" : "desc");
@@ -161,8 +155,8 @@ export default async function CustomersPage({
         </Can>
       </div>
 
-      <form action="/customers" className="space-y-3 rounded-xl border bg-card p-3 shadow-xs">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="space-y-3 rounded-xl border bg-card p-3 shadow-xs">
+        <form action="/customers" className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -172,50 +166,24 @@ export default async function CustomersPage({
               className="pl-8"
             />
           </div>
+          {/* Preserve any active advanced filters when running a simple search. */}
+          {drillFilters.map((f, i) => (
+            <input key={`f-${i}`} type="hidden" name="filters" value={f} />
+          ))}
+          {metaFilters.map((m, i) => (
+            <input key={`m-${i}`} type="hidden" name="meta" value={m} />
+          ))}
           <Button type="submit" variant="secondary">
             Search
           </Button>
-          {(q || meta) && (
+          {(q || drillFilters.length > 0 || metaFilters.length > 0) && (
             <Link href="/customers" className={buttonVariants({ variant: "ghost" })}>
-              Clear
+              Clear all
             </Link>
           )}
-        </div>
-        <details open={Boolean(meta)}>
-          <summary className="w-fit cursor-pointer list-none text-xs font-medium text-muted-foreground transition-colors select-none hover:text-foreground">
-            <span className="inline-flex items-center gap-1">
-              <SlidersHorizontal className="size-3.5" /> Advanced filter
-            </span>
-          </summary>
-          <div className="mt-2 space-y-1">
-            <Input
-              name="meta"
-              defaultValue={meta}
-              placeholder="store metadata filter, e.g. coolers.standing.coke|exists"
-            />
-            <p className="text-xs text-muted-foreground">
-              Path|operator|value on store metadata. Operators: eq, contains, exists, gt, gte, lt, lte, between.
-            </p>
-          </div>
-        </details>
-      </form>
-
-      {drillFilters.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Filtered:</span>
-          {drillFilters.map((f, i) => {
-            const [field, op, ...rest] = f.split("|");
-            return (
-              <Badge key={i} variant="secondary">
-                {field} {op} {rest.join("|")}
-              </Badge>
-            );
-          })}
-          <Link href="/customers" className={buttonVariants({ variant: "ghost", size: "sm" })}>
-            Clear
-          </Link>
-        </div>
-      )}
+        </form>
+        <CustomerFilterBuilder q={q} initialConditions={initialConditions} />
+      </div>
 
       {error ? (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
