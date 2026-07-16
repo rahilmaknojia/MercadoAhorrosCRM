@@ -14,7 +14,8 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/status-badge";
-import { CustomerFilterBuilder, parseConditions } from "@/components/customer-filter-builder";
+import { CustomerFilterBuilder } from "@/components/customer-filter-builder";
+import { parseConditions } from "@/lib/customer-filters";
 import { Can } from "@/components/permissions-provider";
 import { ArrowDown, ArrowUp, ChevronsUpDown, Eye, Pencil, Plus, Search, Users } from "lucide-react";
 

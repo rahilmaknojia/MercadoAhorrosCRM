@@ -3,14 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { META_OPS, type FilterCondition } from "@/lib/customer-filters";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plus, SlidersHorizontal, Trash2 } from "lucide-react";
-
-/** A field filter maps to the API `filters` param; a metadata filter maps to `meta`. */
-export type FilterCondition =
-  | { kind: "field"; field: string; op: string; value: string }
-  | { kind: "meta"; path: string; op: string; value: string };
 
 const META_VALUE = "__meta__";
 
@@ -40,15 +36,6 @@ const TEXT_OPS = [
   { op: "startswith", label: "starts with" },
 ];
 const STATUS_OPS = [{ op: "exact", label: "is" }];
-const META_OPS = [
-  { op: "exists", label: "exists" },
-  { op: "eq", label: "is" },
-  { op: "contains", label: "contains" },
-  { op: "gte", label: "≥" },
-  { op: "lte", label: "≤" },
-  { op: "gt", label: ">" },
-  { op: "lt", label: "<" },
-];
 
 const selectClass =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -232,26 +219,4 @@ export function CustomerFilterBuilder({
       )}
     </div>
   );
-}
-
-const META_OP_SET = new Set(META_OPS.map((o) => o.op));
-
-/** Parse the URL's `filters` and `meta` params back into editable conditions. */
-export function parseConditions(
-  drillFilters: string[],
-  metaFilters: string[]
-): FilterCondition[] {
-  const out: FilterCondition[] = [];
-  for (const f of drillFilters) {
-    const [field, op, ...rest] = f.split("|");
-    if (!field || !op) continue;
-    out.push({ kind: "field", field, op, value: rest.join("|") });
-  }
-  for (const m of metaFilters) {
-    const [path, op, ...rest] = m.split("|");
-    if (!path) continue;
-    const normalizedOp = op && META_OP_SET.has(op) ? op : "exists";
-    out.push({ kind: "meta", path, op: normalizedOp, value: rest.join("|") });
-  }
-  return out;
 }
