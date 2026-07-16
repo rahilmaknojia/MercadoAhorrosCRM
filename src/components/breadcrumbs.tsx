@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useBreadcrumbLabels } from "@/components/breadcrumb-context";
 
 // Known segments get a friendly label; anything else is humanized. Numeric segments (record ids)
 // render as "#123" for now — Phase 2 can resolve them to the record's name via the page.
@@ -28,13 +29,14 @@ function humanize(segment: string): string {
 
 export function Breadcrumbs({ className }: { className?: string }) {
   const pathname = usePathname();
+  const labels = useBreadcrumbLabels();
   const segments = pathname.split("/").filter(Boolean);
 
-  const crumbs = segments.map((segment, index) => ({
-    label: humanize(segment),
-    href: "/" + segments.slice(0, index + 1).join("/"),
-    isLast: index === segments.length - 1,
-  }));
+  const crumbs = segments.map((segment, index) => {
+    const href = "/" + segments.slice(0, index + 1).join("/");
+    // A page-registered name (e.g. the member's business name) wins over the humanized segment.
+    return { label: labels[href] ?? humanize(segment), href, isLast: index === segments.length - 1 };
+  });
 
   return (
     <nav aria-label="Breadcrumb" className={cn("flex min-w-0 items-center gap-1 text-sm", className)}>

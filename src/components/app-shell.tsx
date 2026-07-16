@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { UserMenu } from "@/components/user-menu";
 import { Breadcrumbs } from "@/components/breadcrumbs";
+import { BreadcrumbProvider } from "@/components/breadcrumb-context";
 import { BarChart3, Menu, PanelLeft, Settings, Users, X } from "lucide-react";
 
 const NAV = [
@@ -107,6 +108,7 @@ export function AppShell({
   }
 
   return (
+    <BreadcrumbProvider>
     <div className="flex h-svh overflow-hidden">
       {/* Desktop sidebar (collapses to an icon rail). */}
       <aside
@@ -170,5 +172,6 @@ export function AppShell({
         </main>
       </div>
     </div>
+    </BreadcrumbProvider>
   );
 }

@@ -18,6 +18,7 @@ import { CustomerActivity } from "@/components/customer-activity";
 import { CustomerCoolers } from "@/components/customer-coolers";
 import { CustomerVendors } from "@/components/customer-vendors";
 import { MemberTabs } from "@/components/member-tabs";
+import { BreadcrumbLabel } from "@/components/breadcrumb-context";
 import { CopyButton, CopyField } from "@/components/copy-field";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn, formatPhone } from "@/lib/utils";
@@ -289,6 +290,10 @@ export default async function CustomerDetailPage({
 
   return (
     <div className="space-y-4">
+      <BreadcrumbLabel
+        href={`/customers/${customer.id}`}
+        label={customer.businessName || customer.contactName || customer.memberId}
+      />
       {/* Sticky so the member you're looking at, and Edit, stay reachable while scrolling a tab. */}
       <div className="sticky top-0 z-20 -mx-4 border-b border-border bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <Link href="/customers" className="text-xs text-muted-foreground hover:underline">
