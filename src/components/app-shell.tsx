@@ -51,7 +51,7 @@ function SidebarBody({ collapsed, pathname }: { collapsed: boolean; pathname: st
     <div className="flex h-full flex-col bg-zinc-950 text-zinc-100">
       <div
         className={cn(
-          "flex h-14 items-center border-b border-white/10 px-3",
+          "flex h-20 items-center border-b border-white/10 px-4",
           collapsed && "justify-center px-0"
         )}
       >
@@ -62,7 +62,7 @@ function SidebarBody({ collapsed, pathname }: { collapsed: boolean; pathname: st
             width={1027}
             height={562}
             priority
-            className={cn("w-auto", collapsed ? "h-7" : "h-9")}
+            className={cn("w-auto", collapsed ? "h-9" : "h-14")}
           />
         </Link>
       </div>
