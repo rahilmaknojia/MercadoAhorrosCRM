@@ -9,7 +9,7 @@ import {
   type MasterDataItem,
   type StoreMetadata,
 } from "@/lib/types";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Can } from "@/components/permissions-provider";
@@ -21,12 +21,6 @@ import { MemberTabs } from "@/components/member-tabs";
 import { CopyButton, CopyField } from "@/components/copy-field";
 import { cn, formatPhone } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
-
-function statusVariant(status: string): "default" | "secondary" | "outline" {
-  if (status === "Active") return "default";
-  if (status === "Inactive") return "outline";
-  return "secondary";
-}
 
 function fmtDate(iso?: string | null): string {
   if (!iso) return "—";
@@ -280,7 +274,7 @@ export default async function CustomerDetailPage({
               <h1 className="truncate text-xl font-semibold">
                 {customer.businessName || customer.contactName}
               </h1>
-              <Badge variant={statusVariant(customer.status)}>{customer.status}</Badge>
+              <StatusBadge status={customer.status} />
             </div>
             <p className="mt-0.5 flex flex-wrap items-center text-sm text-muted-foreground">
               <span className="group inline-flex items-center gap-1 font-medium">

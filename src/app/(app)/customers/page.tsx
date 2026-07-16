@@ -13,13 +13,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { StatusBadge } from "@/components/status-badge";
 import { Can } from "@/components/permissions-provider";
-import { Plus } from "lucide-react";
+import { Plus, Search, Users } from "lucide-react";
 
-function statusVariant(status: string): "default" | "secondary" | "outline" {
-  if (status === "Active") return "default";
-  if (status === "Inactive") return "outline";
-  return "secondary";
+function initials(value?: string | null): string {
+  const source = (value || "?").trim();
+  const parts = source.split(/\s+/);
+  return (
+    ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() ||
+    source[0]?.toUpperCase() ||
+    "?"
+  );
 }
 
 export default async function CustomersPage({
@@ -64,12 +70,12 @@ export default async function CustomersPage({
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Customers</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Customers</h1>
           <p className="text-sm text-muted-foreground">
-            {page ? `${page.TotalCount} member store(s)` : "Member stores"}
+            {page ? `${page.TotalCount.toLocaleString()} member store${page.TotalCount === 1 ? "" : "s"}` : "Member stores"}
           </p>
         </div>
         <Can permission="customers:create">
@@ -79,18 +85,19 @@ export default async function CustomersPage({
         </Can>
       </div>
 
-      <form action="/customers" className="flex flex-wrap items-center gap-2">
-        <Input
-          name="q"
-          defaultValue={q}
-          placeholder="Search business name…"
-          className="max-w-xs"
-        />
+      <form
+        action="/customers"
+        className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3 shadow-xs"
+      >
+        <div className="relative min-w-0 flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input name="q" defaultValue={q} placeholder="Search business name…" className="pl-8" />
+        </div>
         <Input
           name="meta"
           defaultValue={meta}
           placeholder="metadata filter, e.g. gas.brand|eq|Shell"
-          className="max-w-sm"
+          className="min-w-0 flex-1 sm:max-w-sm"
         />
         <Button type="submit" variant="secondary">
           Search
@@ -124,12 +131,11 @@ export default async function CustomersPage({
           {error}
         </div>
       ) : (
-        <div className="rounded-md border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
           <Table>
             <TableHeader>
-              <TableRow>
+              <TableRow className="hover:bg-transparent">
                 <TableHead>Member</TableHead>
-                <TableHead>Business</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead>Phone</TableHead>
@@ -138,31 +144,41 @@ export default async function CustomersPage({
             </TableHeader>
             <TableBody>
               {customers.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                    No customers found.
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={5} className="h-40 text-center">
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      <Users className="size-8 opacity-40" />
+                      <p className="text-sm">No customers found.</p>
+                    </div>
                   </TableCell>
                 </TableRow>
               ) : (
                 customers.map((c) => (
-                  <TableRow key={c.id} className="hover:bg-muted/50">
-                    <TableCell className="font-medium">
-                      <Link href={`/customers/${c.id}`} className="hover:underline">
-                        {c.memberId}
-                      </Link>
-                    </TableCell>
+                  <TableRow key={c.id} className="group">
                     <TableCell>
-                      <Link href={`/customers/${c.id}`} className="hover:underline">
-                        {c.businessName ?? "—"}
+                      <Link href={`/customers/${c.id}`} className="flex items-center gap-3">
+                        <Avatar className="size-9 border">
+                          <AvatarFallback className="text-xs font-medium">
+                            {initials(c.businessName || c.contactName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <div className="truncate font-medium group-hover:underline">
+                            {c.businessName || c.contactName || "—"}
+                          </div>
+                          <div className="font-mono text-xs text-muted-foreground">{c.memberId}</div>
+                        </div>
                       </Link>
                     </TableCell>
-                    <TableCell>{c.contactName}</TableCell>
+                    <TableCell>{c.contactName || "—"}</TableCell>
                     <TableCell>
                       {[c.storeCity, c.storeState].filter(Boolean).join(", ") || "—"}
                     </TableCell>
-                    <TableCell>{formatPhone(c.storePhone) || c.storePhone || "—"}</TableCell>
+                    <TableCell className="tabular-nums">
+                      {formatPhone(c.storePhone) || c.storePhone || "—"}
+                    </TableCell>
                     <TableCell>
-                      <Badge variant={statusVariant(c.status)}>{c.status}</Badge>
+                      <StatusBadge status={c.status} />
                     </TableCell>
                   </TableRow>
                 ))
