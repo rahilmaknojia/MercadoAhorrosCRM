@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ReportView } from "@/components/report-view";
 import { ReportEmailForm } from "@/components/report-email-form";
+import { BreadcrumbLabel } from "@/components/breadcrumb-context";
 import { Can } from "@/components/permissions-provider";
 import { deleteReport, setDashboardSize, setPinned } from "../actions";
 import { Download, Pencil, Pin, Trash2 } from "lucide-react";
@@ -37,6 +38,7 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
 
   return (
     <div className="space-y-6">
+      <BreadcrumbLabel href={`/reports/${preset.id}`} label={preset.name} />
       <div>
         <Link href="/reports" className="text-sm text-muted-foreground hover:underline">
           ← Back to reports

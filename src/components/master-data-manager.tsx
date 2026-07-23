@@ -20,7 +20,7 @@ const selectClass =
 export function MasterDataManager({ itemsByType }: { itemsByType: Record<string, MasterDataItem[]> }) {
   const canManage = useCan("master_data:manage");
   return (
-    <div className="space-y-8">
+    <div className="grid gap-4 lg:grid-cols-2">
       {MANAGED_MASTER_DATA_TYPES.map(({ type, label }) => (
         <TypeSection
           key={type}
@@ -62,39 +62,44 @@ function TypeSection({
   }
 
   return (
-    <section className="space-y-2">
-      <h2 className="text-sm font-semibold">
-        {label} <span className="font-normal text-muted-foreground">({items.length})</span>
-      </h2>
-      <div className="divide-y rounded-md border">
+    <section className="flex flex-col rounded-xl border bg-card shadow-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          {label}
+          <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-normal tabular-nums text-muted-foreground">
+            {items.length}
+          </span>
+        </h2>
+        {canManage && (
+          <div className="flex gap-2">
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  add();
+                }
+              }}
+              placeholder={`Add ${label.toLowerCase().replace(/s$/, "")}…`}
+              className="h-8 w-44"
+              disabled={adding}
+            />
+            <Button size="sm" onClick={add} disabled={adding || !name.trim()}>
+              {adding ? <Loader2 className="animate-spin" /> : <Plus />} Add
+            </Button>
+          </div>
+        )}
+      </div>
+      <div className="divide-y">
         {items.length === 0 ? (
-          <p className="p-3 text-sm text-muted-foreground">None yet.</p>
+          <p className="px-4 py-3 text-sm text-muted-foreground">None yet.</p>
         ) : (
           items.map((item) => (
             <Row key={item.id} item={item} siblings={items} canManage={canManage} label={label} />
           ))
         )}
       </div>
-      {canManage && (
-        <div className="flex gap-2">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                add();
-              }
-            }}
-            placeholder={`Add ${label.toLowerCase().replace(/s$/, "")}…`}
-            className="h-9 max-w-xs"
-            disabled={adding}
-          />
-          <Button size="sm" onClick={add} disabled={adding || !name.trim()}>
-            {adding ? <Loader2 className="animate-spin" /> : <Plus />} Add
-          </Button>
-        </div>
-      )}
     </section>
   );
 }
@@ -150,14 +155,14 @@ function Row({
 
   if (!canManage) {
     return (
-      <div className="px-3 py-2 text-sm">
+      <div className="px-4 py-2 text-sm">
         <span className={item.isActive ? "" : "text-muted-foreground line-through"}>{item.name}</span>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+    <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
       <Input
         value={name}
         onChange={(e) => setName(e.target.value)}

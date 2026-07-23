@@ -9,7 +9,7 @@ import {
   type MasterDataItem,
   type StoreMetadata,
 } from "@/lib/types";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Can } from "@/components/permissions-provider";
@@ -18,13 +18,21 @@ import { CustomerActivity } from "@/components/customer-activity";
 import { CustomerCoolers } from "@/components/customer-coolers";
 import { CustomerVendors } from "@/components/customer-vendors";
 import { MemberTabs } from "@/components/member-tabs";
-import { Pencil } from "lucide-react";
-
-function statusVariant(status: string): "default" | "secondary" | "outline" {
-  if (status === "Active") return "default";
-  if (status === "Inactive") return "outline";
-  return "secondary";
-}
+import { BreadcrumbLabel } from "@/components/breadcrumb-context";
+import { CopyButton, CopyField } from "@/components/copy-field";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { cn, formatPhone } from "@/lib/utils";
+import {
+  BadgeCheck,
+  ChevronLeft,
+  ChevronRight,
+  MapPin,
+  MessageSquare,
+  Pencil,
+  Store,
+  User,
+  type LucideIcon,
+} from "lucide-react";
 
 function fmtDate(iso?: string | null): string {
   if (!iso) return "—";
@@ -39,10 +47,50 @@ function fmtDate(iso?: string | null): string {
 function Field({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
   return (
-    <div className="flex justify-between gap-4 py-1 text-sm">
+    <div className="flex justify-between gap-4 py-1.5 text-sm">
       <span className="text-muted-foreground">{label}</span>
       <span className="text-right font-medium">{value}</span>
     </div>
+  );
+}
+
+function initials(value?: string | null): string {
+  const source = (value || "?").trim();
+  const [a, b] = source.split(/\s+/);
+  return ((a?.[0] ?? "") + (b?.[0] ?? "")).toUpperCase() || source[0]?.toUpperCase() || "?";
+}
+
+/** A titled card with a tinted leading icon — the shared shape for the overview sections. */
+function InfoCard({
+  icon: Icon,
+  title,
+  children,
+  contentClassName,
+  iconClassName,
+}: {
+  icon: LucideIcon;
+  title: string;
+  children: React.ReactNode;
+  contentClassName?: string;
+  iconClassName?: string;
+}) {
+  return (
+    <Card className="shadow-xs">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <span
+            className={cn(
+              "inline-flex size-7 items-center justify-center rounded-lg",
+              iconClassName ?? "bg-muted text-muted-foreground"
+            )}
+          >
+            <Icon className="size-4" />
+          </span>
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className={contentClassName}>{children}</CardContent>
+    </Card>
   );
 }
 
@@ -57,12 +105,35 @@ async function fetchArray<T>(path: string): Promise<T[]> {
   }
 }
 
+/**
+ * The adjacent member in record order (by Id, which matches the list's memberId ordering) so the
+ * detail page can offer prev/next. The entity filter has no `>`/`<`, so we bracket with `between`
+ * and take the single nearest row; state scoping is applied by the endpoint, so neighbours stay
+ * within what the viewer may see. Returns null at the ends of the list.
+ */
+async function fetchNeighbor(id: number, direction: "prev" | "next"): Promise<Customer | null> {
+  const filter =
+    direction === "next" ? `id|between|${id + 1}|2147483647` : `id|between|0|${id - 1}`;
+  const params = new URLSearchParams({
+    pageNumber: "1",
+    pageSize: "1",
+    sortField: "id",
+    ascending: direction === "next" ? "true" : "false",
+  });
+  params.append("filters", filter);
+  const rows = await fetchArray<Customer>(`/api/customers?${params.toString()}`);
+  return rows[0] ?? null;
+}
+
 export default async function CustomerDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const { id } = await params;
+  const { tab } = await searchParams;
 
   // Fetch in a try/catch for transport errors, but keep notFound() OUTSIDE it —
   // notFound() throws a navigation signal that must not be swallowed by the catch.
@@ -89,13 +160,20 @@ export default async function CustomerDetailPage({
   // Store metadata, the cooler catalogue and vendor selections (activity is loaded + paginated
   // client-side). The catalogue drives the cooler dropdowns; inactive values are excluded so they
   // can't be newly selected, but existing selections still render (see CatalogueSelect).
-  const [metadata, vendorGroups, brands, packages, sharedCoolers] = await Promise.all([
-    fetchArray<StoreMetadata>(`/api/storemetadata?filters=customerId|exact|${id}&pageSize=1`),
-    fetchArray<CustomerVendorSelectionGroup>(`/api/customers/${id}/vendors`),
-    fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=coolerBrand`),
-    fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=coolerPackage`),
-    fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=sharedCooler`),
-  ]);
+  const [metadata, vendorGroups, brands, packages, sharedCoolers, prevMember, nextMember] =
+    await Promise.all([
+      fetchArray<StoreMetadata>(`/api/storemetadata?filters=customerId|exact|${id}&pageSize=1`),
+      fetchArray<CustomerVendorSelectionGroup>(`/api/customers/${id}/vendors`),
+      fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=coolerBrand`),
+      fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=coolerPackage`),
+      fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=sharedCooler`),
+      fetchNeighbor(customer.id, "prev"),
+      fetchNeighbor(customer.id, "next"),
+    ]);
+
+  // Carry the active tab onto the prev/next links so stepping through members keeps you on the
+  // same tab. Built once here; the ends of the list render as disabled controls.
+  const neighborHref = (nid: number) => `/customers/${nid}${tab ? `?tab=${tab}` : ""}`;
 
   // The document holds several recognized sections plus a long tail of free-form equipment keys.
   // Pull out the sections that now have real UI (and the reserved photo-caption key), and keep
@@ -147,78 +225,53 @@ export default async function CustomerDetailPage({
   const overview = (
     <>
       <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Contact</CardTitle>
-          </CardHeader>
-          <CardContent className="divide-y">
-            <Field label="Contact name" value={customer.contactName} />
-            <Field label="Title" value={customer.personTitle} />
-            <Field label="Business" value={customer.businessName} />
-            <Field label="Corporate" value={customer.corpName} />
-            <Field label="Email" value={customer.email} />
-            <Field label="Store phone" value={customer.storePhone} />
-            <Field label="Cell phone" value={customer.cellPhone} />
-            <Field label="Fax" value={customer.storeFax} />
-          </CardContent>
-        </Card>
+        <InfoCard icon={User} title="Contact" contentClassName="divide-y" iconClassName="bg-blue-50 text-blue-600">
+          <CopyField label="Contact name" value={customer.contactName} />
+          <Field label="Title" value={customer.personTitle} />
+          <CopyField label="Business" value={customer.businessName} />
+          <CopyField label="Corporate" value={customer.corpName} />
+          <CopyField label="Email" value={customer.email} />
+          <CopyField label="Store phone" value={formatPhone(customer.storePhone) || customer.storePhone} />
+          <CopyField label="Cell phone" value={formatPhone(customer.cellPhone) || customer.cellPhone} />
+          <Field label="Fax" value={formatPhone(customer.storeFax) || customer.storeFax} />
+        </InfoCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Store location</CardTitle>
-          </CardHeader>
-          <CardContent className="divide-y">
-            <Field label="Address" value={customer.storeAddress} />
-            <Field label="City" value={customer.storeCity} />
-            <Field label="State" value={customer.storeState} />
-            <Field label="ZIP" value={customer.storeZipcode} />
-            <Field
-              label="Mailing"
-              value={[customer.mailingAddress, customer.mailingCity, customer.mailingState, customer.mailingZipcode]
-                .filter(Boolean)
-                .join(", ")}
-            />
-          </CardContent>
-        </Card>
+        <InfoCard icon={Store} title="Store information" contentClassName="divide-y" iconClassName="bg-amber-50 text-amber-600">
+          <CopyField label="Address" value={customer.storeAddress} />
+          <Field label="City" value={customer.storeCity} />
+          <Field label="State" value={customer.storeState} />
+          <Field label="ZIP" value={customer.storeZipcode} />
+          <CopyField
+            label="Mailing"
+            value={[customer.mailingAddress, customer.mailingCity, customer.mailingState, customer.mailingZipcode]
+              .filter(Boolean)
+              .join(", ")}
+          />
+          <Field label="Sales tax ID" value={customer.salesTaxId} />
+          <Field label="Federal tax ID" value={customer.federalTaxId} />
+        </InfoCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Territory</CardTitle>
-          </CardHeader>
-          <CardContent className="divide-y">
-            <Field label="Region" value={customer.region} />
-            <Field label="District" value={customer.district} />
-            <Field label="Zone no." value={customer.zoneNo} />
-            <Field label="Zone manager" value={customer.zoneManager} />
-            <Field label="Store group" value={customer.storeGroup} />
-          </CardContent>
-        </Card>
+        <InfoCard icon={MapPin} title="Territory" contentClassName="divide-y" iconClassName="bg-emerald-50 text-emerald-600">
+          <Field label="Region" value={customer.region} />
+          <Field label="District" value={customer.district} />
+          <Field label="Zone no." value={customer.zoneNo} />
+          <Field label="Zone manager" value={customer.zoneManager} />
+          <Field label="Store group" value={customer.storeGroup} />
+        </InfoCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Status &amp; identifiers</CardTitle>
-          </CardHeader>
-          <CardContent className="divide-y">
-            <Field label="Status" value={customer.status} />
-            <Field label="Date joined" value={fmtDate(customer.dateJoined)} />
-            <Field label="Date inactive" value={customer.dateInactive ? fmtDate(customer.dateInactive) : null} />
-            <Field label="Inactive reason" value={customer.inactiveReason} />
-            <Field label="Sales tax ID" value={customer.salesTaxId} />
-            <Field label="Federal tax ID" value={customer.federalTaxId} />
-            <Field label="Signed by" value={customer.signedBy} />
-          </CardContent>
-        </Card>
+        <InfoCard icon={BadgeCheck} title="Status &amp; identifiers" contentClassName="divide-y" iconClassName="bg-violet-50 text-violet-600">
+          <Field label="Status" value={customer.status} />
+          <Field label="Date joined" value={fmtDate(customer.dateJoined)} />
+          <Field label="Date inactive" value={customer.dateInactive ? fmtDate(customer.dateInactive) : null} />
+          <Field label="Inactive reason" value={customer.inactiveReason} />
+          <Field label="Signed by" value={customer.signedBy} />
+        </InfoCard>
       </div>
 
       {customer.comments && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Comments</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="whitespace-pre-wrap text-sm">{customer.comments}</p>
-          </CardContent>
-        </Card>
+        <InfoCard icon={MessageSquare} title="Comments">
+          <p className="whitespace-pre-wrap text-sm">{customer.comments}</p>
+        </InfoCard>
       )}
 
       {/* Whatever else lives in the document and has no dedicated UI yet. */}
@@ -237,41 +290,103 @@ export default async function CustomerDetailPage({
 
   return (
     <div className="space-y-4">
+      <BreadcrumbLabel
+        href={`/customers/${customer.id}`}
+        label={customer.businessName || customer.contactName || customer.memberId}
+      />
       {/* Sticky so the member you're looking at, and Edit, stay reachable while scrolling a tab. */}
       <div className="sticky top-0 z-20 -mx-4 border-b border-border bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <Link href="/customers" className="text-xs text-muted-foreground hover:underline">
           ← Back to customers
         </Link>
         <div className="mt-1 flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-xl font-semibold">
-                {customer.businessName || customer.contactName}
-              </h1>
-              <Badge variant={statusVariant(customer.status)}>{customer.status}</Badge>
-            </div>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {customer.memberId}
+          <div className="flex min-w-0 items-center gap-3">
+            <Avatar className="size-12 shrink-0 border">
+              <AvatarFallback className="text-sm font-medium">
+                {initials(customer.businessName || customer.contactName)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="truncate text-xl font-semibold">
+                  {customer.businessName || customer.contactName}
+                </h1>
+                <StatusBadge status={customer.status} />
+              </div>
+            <p className="mt-0.5 flex flex-wrap items-center text-sm text-muted-foreground">
+              <span className="group inline-flex items-center gap-1 font-medium">
+                {customer.memberId}
+                <CopyButton
+                  value={customer.memberId}
+                  label="member ID"
+                  className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+                />
+              </span>
               {summary.map((part) => (
-                <span key={part}>
+                <span key={part} className="inline-flex items-center">
                   <span className="px-1.5 text-border">·</span>
                   {part}
                 </span>
               ))}
-            </p>
+              </p>
+            </div>
           </div>
-          <Can permission="customers:update">
-            <Link
-              href={`/customers/${customer.id}/edit`}
-              className={buttonVariants({ variant: "outline", size: "sm" })}
-            >
-              <Pencil /> Edit
-            </Link>
-          </Can>
+          <div className="flex items-center gap-2">
+            {/* Step through members in list order; disabled at the ends. */}
+            <div className="flex items-center">
+              {prevMember ? (
+                <Link
+                  href={neighborHref(prevMember.id)}
+                  aria-label={`Previous member ${prevMember.memberId}`}
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }), "rounded-r-none")}
+                >
+                  <ChevronLeft /> Prev
+                </Link>
+              ) : (
+                <span
+                  aria-disabled
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "sm" }),
+                    "pointer-events-none rounded-r-none opacity-50"
+                  )}
+                >
+                  <ChevronLeft /> Prev
+                </span>
+              )}
+              {nextMember ? (
+                <Link
+                  href={neighborHref(nextMember.id)}
+                  aria-label={`Next member ${nextMember.memberId}`}
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }), "-ml-px rounded-l-none")}
+                >
+                  Next <ChevronRight />
+                </Link>
+              ) : (
+                <span
+                  aria-disabled
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "sm" }),
+                    "pointer-events-none -ml-px rounded-l-none opacity-50"
+                  )}
+                >
+                  Next <ChevronRight />
+                </span>
+              )}
+            </div>
+            <Can permission="customers:update">
+              <Link
+                href={`/customers/${customer.id}/edit`}
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                <Pencil /> Edit
+              </Link>
+            </Can>
+          </div>
         </div>
       </div>
 
       <MemberTabs
+        initialTab={tab}
         tabs={[
           { value: "overview", label: "Overview", content: overview },
           {

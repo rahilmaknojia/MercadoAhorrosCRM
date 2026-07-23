@@ -41,7 +41,7 @@ import {
 } from "@/components/ui/table";
 import { Loader2 } from "lucide-react";
 
-const COLORS = [
+export const COLORS = [
   "#e11d2e",
   "#ffb000",
   "#1f9d55",
@@ -147,7 +147,7 @@ function CustomerReportView({ definition }: { definition: ReportDefinition }) {
   if (viz === "metric") {
     const sum = buckets.reduce((t, b) => t + b.count, 0);
     return (
-      <div className="rounded-lg border p-6">
+      <div className="rounded-xl border bg-card p-6 shadow-xs">
         <div className="text-4xl font-semibold tabular-nums">{sum.toLocaleString()}</div>
         <div className="mt-1 text-sm text-muted-foreground">
           matching records{definition.groupBy ? ` · grouped by ${fieldLabel(definition.groupBy)}` : ""}
@@ -244,7 +244,7 @@ function CustomerReportView({ definition }: { definition: ReportDefinition }) {
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">{total} matching record(s)</p>
-      <div className="rounded-md border">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
         <Table>
           <TableHeader>
             <TableRow>
@@ -339,15 +339,17 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">{total} matching customer(s)</p>
-      <div className="rounded-md border">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Member ID</TableHead>
-              <TableHead>Business</TableHead>
-              <TableHead>City</TableHead>
-              <TableHead>State</TableHead>
-              <TableHead>Status</TableHead>
+              {/* Derived from the shared label table so this view uses the same wording
+                  as the customers list, the filter builder, and CSV export. */}
+              <TableHead>{fieldLabel("memberId")}</TableHead>
+              <TableHead>{fieldLabel("businessName")}</TableHead>
+              <TableHead>{fieldLabel("storeCity")}</TableHead>
+              <TableHead>{fieldLabel("storeState")}</TableHead>
+              <TableHead>{fieldLabel("status")}</TableHead>
               <TableHead>Selected vendors</TableHead>
             </TableRow>
           </TableHeader>
@@ -376,9 +378,21 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
                     ) : (
                       <div className="flex flex-wrap gap-1">
                         {r.selectedVendors.map((v) => (
-                          <Badge key={v.vendorId} variant="secondary" title={v.groupName}>
+                          <Badge
+                            key={v.vendorId}
+                            variant="secondary"
+                            title={
+                              v.accountNumber
+                                ? `${v.groupName} · account ${v.accountNumber}`
+                                : v.groupName
+                            }
+                          >
                             {v.name}
-                            {v.accountNumber ? ` · ${v.accountNumber}` : ""}
+                            {v.accountNumber && (
+                              <span className="ml-1 font-mono text-[10px] opacity-70">
+                                #{v.accountNumber}
+                              </span>
+                            )}
                           </Badge>
                         ))}
                       </div>

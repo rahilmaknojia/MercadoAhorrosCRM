@@ -735,7 +735,7 @@ export function CustomerPhotos({
         </div>
       ) : (
         <div className="gap-4 md:grid md:grid-cols-[210px_minmax(0,1fr)]">
-          <nav className="mb-3 flex gap-1 overflow-x-auto md:mb-0 md:flex-col md:overflow-visible">
+          <nav className="mb-3 flex gap-1 overflow-x-auto md:mb-0 md:flex-col md:overflow-visible md:self-start md:rounded-xl md:border md:bg-card md:p-2 md:shadow-xs">
             {folders.map((f) => (
               <FolderButton
                 key={f.norm}
