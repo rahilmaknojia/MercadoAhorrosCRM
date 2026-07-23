@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { apiFetch } from "@/lib/server/api";
 import { cn, formatPhone } from "@/lib/utils";
-import type { Customer, PageInfo } from "@/lib/types";
+import type { Customer, PageInfo, VendorGroup } from "@/lib/types";
 import {
   Table,
   TableBody,
@@ -53,6 +53,8 @@ export default async function CustomersPage({
     q?: string;
     meta?: string | string[];
     filters?: string | string[];
+    vendors?: string;
+    vmatch?: string;
     sort?: string;
     dir?: string;
     page?: string;
@@ -69,6 +71,12 @@ export default async function CustomersPage({
     .map((m) => m.trim())
     .filter(Boolean);
   const initialConditions = parseConditions(drillFilters, metaFilters);
+  // Vendor filter: comma-separated vendor codes, plus AND/OR across them.
+  const vendorCodes = (sp.vendors ?? "")
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
+  const vendorMatchAll = sp.vmatch === "all";
   const sortField = SORTABLE_FIELDS.has(sp.sort ?? "") ? sp.sort! : "memberId";
   const ascending = (sp.dir ?? "asc") !== "desc";
   const pageNumber = Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1);
@@ -87,12 +95,24 @@ export default async function CustomersPage({
   }
   drillFilters.forEach((f) => params.append("filters", f));
   metaFilters.forEach((m) => params.append("metadataFilters", m));
+  if (vendorCodes.length > 0) {
+    params.set("vendorCodes", vendorCodes.join(","));
+    params.set("matchAll", String(vendorMatchAll));
+  }
 
   let customers: Customer[] = [];
   let page: PageInfo | null = null;
   let error: string | null = null;
+  let vendorGroups: VendorGroup[] = [];
   try {
-    const res = await apiFetch(`/api/customers?${params.toString()}`);
+    // The vendor catalogue powers the filter picker; a failure there must not blank the list.
+    const [res, vendorRes] = await Promise.all([
+      apiFetch(`/api/customers?${params.toString()}`),
+      apiFetch("/api/vendors/grouped").catch(() => null),
+    ]);
+    if (vendorRes?.ok) {
+      vendorGroups = (await vendorRes.json()) as VendorGroup[];
+    }
     if (res.ok) {
       customers = (await res.json()) as Customer[];
       const header = res.headers.get("x-pagination");
@@ -112,6 +132,10 @@ export default async function CustomersPage({
     if (q) usp.set("q", q);
     metaFilters.forEach((m) => usp.append("meta", m));
     drillFilters.forEach((f) => usp.append("filters", f));
+    if (vendorCodes.length > 0) {
+      usp.set("vendors", vendorCodes.join(","));
+      if (vendorMatchAll) usp.set("vmatch", "all");
+    }
     const sort = overrides.sort ?? sortField;
     const dir = overrides.dir ?? (ascending ? "asc" : "desc");
     const pg = overrides.page ?? pageNumber;
@@ -183,7 +207,13 @@ export default async function CustomersPage({
             </Link>
           )}
         </form>
-        <CustomerFilterBuilder q={q} initialConditions={initialConditions} />
+        <CustomerFilterBuilder
+          q={q}
+          initialConditions={initialConditions}
+          vendorGroups={vendorGroups}
+          initialVendorCodes={vendorCodes}
+          initialMatchAll={vendorMatchAll}
+        />
       </div>
 
       {error ? (

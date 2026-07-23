@@ -4,29 +4,32 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { META_OPS, type FilterCondition } from "@/lib/customer-filters";
+import { fieldLabel } from "@/lib/report";
+import type { VendorGroup } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 
 const META_VALUE = "__meta__";
 
-// Customer columns worth filtering on. Order = the dropdown order.
+// Customer columns worth filtering on. Order = the dropdown order. Labels come from the
+// shared CUSTOMER_FIELDS table via fieldLabel() so filter wording matches reports and exports.
 const FIELDS: { field: string; label: string }[] = [
-  { field: "businessName", label: "Business name" },
-  { field: "contactName", label: "Contact name" },
-  { field: "memberId", label: "Member ID" },
-  { field: "storeAddress", label: "Store address" },
-  { field: "storeCity", label: "City" },
-  { field: "storeState", label: "State" },
-  { field: "storeZipcode", label: "ZIP" },
-  { field: "storePhone", label: "Phone" },
-  { field: "email", label: "Email" },
-  { field: "status", label: "Status" },
-  { field: "region", label: "Region" },
-  { field: "district", label: "District" },
-  { field: "storeGroup", label: "Store group" },
-  { field: "zoneManager", label: "Zone manager" },
-];
+  "businessName",
+  "contactName",
+  "memberId",
+  "storeAddress",
+  "storeCity",
+  "storeState",
+  "storeZipcode",
+  "storePhone",
+  "email",
+  "status",
+  "region",
+  "district",
+  "storeGroup",
+  "zoneManager",
+].map((field) => ({ field, label: fieldLabel(field) }));
 
 const STATUS_OPTIONS = ["Active", "Pending", "Inactive"];
 
@@ -48,13 +51,43 @@ function opsFor(c: FilterCondition) {
 export function CustomerFilterBuilder({
   q,
   initialConditions,
+  vendorGroups = [],
+  initialVendorCodes = [],
+  initialMatchAll = false,
 }: {
   q: string;
   initialConditions: FilterCondition[];
+  vendorGroups?: VendorGroup[];
+  initialVendorCodes?: string[];
+  initialMatchAll?: boolean;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(initialConditions.length > 0);
+  const [open, setOpen] = useState(
+    initialConditions.length > 0 || initialVendorCodes.length > 0
+  );
   const [conditions, setConditions] = useState<FilterCondition[]>(initialConditions);
+  const [vendorCodes, setVendorCodes] = useState<Set<string>>(new Set(initialVendorCodes));
+  const [matchAll, setMatchAll] = useState(initialMatchAll);
+
+  function toggleVendor(code: string, checked: boolean) {
+    setVendorCodes((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(code);
+      else next.delete(code);
+      return next;
+    });
+  }
+
+  function toggleVendorGroup(group: VendorGroup, checked: boolean) {
+    setVendorCodes((prev) => {
+      const next = new Set(prev);
+      for (const v of group.vendors) {
+        if (checked) next.add(v.code);
+        else next.delete(v.code);
+      }
+      return next;
+    });
+  }
 
   const patch = (i: number, next: FilterCondition) =>
     setConditions((cs) => cs.map((c, idx) => (idx === i ? next : c)));
@@ -70,9 +103,13 @@ export function CustomerFilterBuilder({
     }
   }
 
-  function buildUrl(list: FilterCondition[]): string {
+  function buildUrl(list: FilterCondition[], vendors: Set<string> = vendorCodes): string {
     const usp = new URLSearchParams();
     if (q) usp.set("q", q);
+    if (vendors.size > 0) {
+      usp.set("vendors", [...vendors].join(","));
+      if (matchAll) usp.set("vmatch", "all");
+    }
     for (const c of list) {
       if (c.kind === "field") {
         if (!c.field || !c.value.trim()) continue;
@@ -89,7 +126,7 @@ export function CustomerFilterBuilder({
     return query ? `/customers?${query}` : "/customers";
   }
 
-  const activeCount = initialConditions.length;
+  const activeCount = initialConditions.length + (initialVendorCodes.length > 0 ? 1 : 0);
 
   return (
     <div>
@@ -192,6 +229,73 @@ export function CustomerFilterBuilder({
             </div>
           ))}
 
+          {/* Vendor filter. Kept out of the condition rows because it is a multi-select over a
+              related table, not a column comparison — and because "show me only Coke stores" is
+              the single most-requested filter, so it deserves a fixed place in the panel. */}
+          {vendorGroups.length > 0 && (
+            <div className="space-y-2 rounded-md border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-medium">Vendors</span>
+                <div className="flex items-center gap-3">
+                  <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className="size-3.5"
+                      checked={matchAll}
+                      onChange={(e) => setMatchAll(e.target.checked)}
+                    />
+                    Match all selected (otherwise any)
+                  </label>
+                  {vendorCodes.size > 0 && (
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground underline hover:text-foreground"
+                      onClick={() => setVendorCodes(new Set())}
+                    >
+                      Clear vendors
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {vendorGroups.map((group) => {
+                const allChecked =
+                  group.vendors.length > 0 &&
+                  group.vendors.every((v) => vendorCodes.has(v.code));
+                return (
+                  <div key={group.groupName} className="grid gap-1 sm:grid-cols-[160px_1fr]">
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        className="size-3.5"
+                        checked={allChecked}
+                        onChange={(e) => toggleVendorGroup(group, e.target.checked)}
+                        aria-label={`Select all ${group.groupName}`}
+                      />
+                      {group.groupName}
+                    </label>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 md:grid-cols-4">
+                      {group.vendors.map((vendor) => (
+                        <label
+                          key={vendor.code}
+                          className="flex items-center gap-1.5 text-xs"
+                        >
+                          <input
+                            type="checkbox"
+                            className="size-3.5"
+                            checked={vendorCodes.has(vendor.code)}
+                            onChange={(e) => toggleVendor(vendor.code, e.target.checked)}
+                          />
+                          <span className="truncate">{vendor.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <Button type="button" variant="ghost" size="sm" onClick={add}>
               <Plus /> Add condition
@@ -204,7 +308,9 @@ export function CustomerFilterBuilder({
                   size="sm"
                   onClick={() => {
                     setConditions([]);
-                    router.push(buildUrl([]));
+                    setVendorCodes(new Set());
+                    setMatchAll(false);
+                    router.push(buildUrl([], new Set()));
                   }}
                 >
                   Clear

@@ -343,11 +343,13 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Member ID</TableHead>
-              <TableHead>Business</TableHead>
-              <TableHead>City</TableHead>
-              <TableHead>State</TableHead>
-              <TableHead>Status</TableHead>
+              {/* Derived from the shared label table so this view uses the same wording
+                  as the customers list, the filter builder, and CSV export. */}
+              <TableHead>{fieldLabel("memberId")}</TableHead>
+              <TableHead>{fieldLabel("businessName")}</TableHead>
+              <TableHead>{fieldLabel("storeCity")}</TableHead>
+              <TableHead>{fieldLabel("storeState")}</TableHead>
+              <TableHead>{fieldLabel("status")}</TableHead>
               <TableHead>Selected vendors</TableHead>
             </TableRow>
           </TableHeader>
@@ -376,8 +378,21 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
                     ) : (
                       <div className="flex flex-wrap gap-1">
                         {r.selectedVendors.map((v) => (
-                          <Badge key={v.vendorId} variant="secondary" title={v.groupName}>
+                          <Badge
+                            key={v.vendorId}
+                            variant="secondary"
+                            title={
+                              v.accountNumber
+                                ? `${v.groupName} · account ${v.accountNumber}`
+                                : v.groupName
+                            }
+                          >
                             {v.name}
+                            {v.accountNumber && (
+                              <span className="ml-1 font-mono text-[10px] opacity-70">
+                                #{v.accountNumber}
+                              </span>
+                            )}
                           </Badge>
                         ))}
                       </div>
