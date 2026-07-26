@@ -9,9 +9,12 @@ import type { EsignatureManualRecipient, SigningSession } from "@/lib/types";
 type LaunchResult = { ok: true; data: SigningSession } | { ok: false; error: string };
 
 async function readError(res: Response, fallback: string): Promise<string> {
-  if (res.status === 403) return "You don't have permission to send documents.";
+  // Prefer the API's own message — it relays upstream (NinjaFlow) 4xx bodies, so a 403 here is
+  // not necessarily a permission problem. Only fall back to the permission wording for a bodyless 403.
   const body = (await res.json().catch(() => null)) as { message?: string } | null;
-  return body?.message ?? fallback;
+  if (body?.message) return body.message;
+  if (res.status === 403) return "You don't have permission to do that.";
+  return fallback;
 }
 
 /** Raise a signing envelope for a customer from a registered template. */
