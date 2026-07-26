@@ -6,6 +6,8 @@ import {
   type CoolerDocument,
   type Customer,
   type CustomerVendorSelectionGroup,
+  type EsignatureDocument,
+  type EsignatureTemplate,
   type MasterDataItem,
   type StoreMetadata,
 } from "@/lib/types";
@@ -17,6 +19,7 @@ import { CustomerPhotos } from "@/components/customer-photos";
 import { CustomerActivity } from "@/components/customer-activity";
 import { CustomerCoolers } from "@/components/customer-coolers";
 import { CustomerVendors } from "@/components/customer-vendors";
+import { CustomerESignature } from "@/components/customer-esignature";
 import { MemberTabs } from "@/components/member-tabs";
 import { BreadcrumbLabel } from "@/components/breadcrumb-context";
 import { CopyButton, CopyField } from "@/components/copy-field";
@@ -160,16 +163,27 @@ export default async function CustomerDetailPage({
   // Store metadata, the cooler catalogue and vendor selections (activity is loaded + paginated
   // client-side). The catalogue drives the cooler dropdowns; inactive values are excluded so they
   // can't be newly selected, but existing selections still render (see CatalogueSelect).
-  const [metadata, vendorGroups, brands, packages, sharedCoolers, prevMember, nextMember] =
-    await Promise.all([
-      fetchArray<StoreMetadata>(`/api/storemetadata?filters=customerId|exact|${id}&pageSize=1`),
-      fetchArray<CustomerVendorSelectionGroup>(`/api/customers/${id}/vendors`),
-      fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=coolerBrand`),
-      fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=coolerPackage`),
-      fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=sharedCooler`),
-      fetchNeighbor(customer.id, "prev"),
-      fetchNeighbor(customer.id, "next"),
-    ]);
+  const [
+    metadata,
+    vendorGroups,
+    brands,
+    packages,
+    sharedCoolers,
+    esignTemplates,
+    esignDocuments,
+    prevMember,
+    nextMember,
+  ] = await Promise.all([
+    fetchArray<StoreMetadata>(`/api/storemetadata?filters=customerId|exact|${id}&pageSize=1`),
+    fetchArray<CustomerVendorSelectionGroup>(`/api/customers/${id}/vendors`),
+    fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=coolerBrand`),
+    fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=coolerPackage`),
+    fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=sharedCooler`),
+    fetchArray<EsignatureTemplate>(`/api/esignature-templates/active`),
+    fetchArray<EsignatureDocument>(`/api/customers/${id}/esignature-documents`),
+    fetchNeighbor(customer.id, "prev"),
+    fetchNeighbor(customer.id, "next"),
+  ]);
 
   // Carry the active tab onto the prev/next links so stepping through members keeps you on the
   // same tab. Built once here; the ends of the list render as disabled controls.
@@ -414,6 +428,18 @@ export default async function CustomerDetailPage({
                 memberId={customer.memberId}
                 customerId={customer.id}
                 initialCaptions={photoCaptions}
+              />
+            ),
+          },
+          {
+            value: "esignature",
+            label: "eSignature",
+            count: esignDocuments.length || undefined,
+            content: (
+              <CustomerESignature
+                customerId={customer.id}
+                templates={esignTemplates}
+                documents={esignDocuments}
               />
             ),
           },
