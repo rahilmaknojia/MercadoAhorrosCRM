@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
+  launchInPersonSigning,
   refreshEsignatureDocument,
   sendEsignatureDocument,
+  startInPersonFromTemplate,
 } from "@/app/(app)/customers/[id]/esignature-actions";
 import { useCan } from "@/components/permissions-provider";
 import { Button } from "@/components/ui/button";
@@ -16,8 +19,9 @@ import type {
   EsignatureManualRecipient,
   EsignatureTemplate,
   EsignatureTemplateMapping,
+  SigningSession,
 } from "@/lib/types";
-import { Loader2, RefreshCw, Send } from "lucide-react";
+import { Loader2, PenLine, RefreshCw, Send, X } from "lucide-react";
 
 function manualRoles(t: EsignatureTemplate) {
   try {
@@ -26,6 +30,11 @@ function manualRoles(t: EsignatureTemplate) {
   } catch {
     return [];
   }
+}
+
+const TERMINAL = new Set(["completed", "signed", "voided", "declined", "expired"]);
+function isSignable(status: string): boolean {
+  return !TERMINAL.has(status.toLowerCase());
 }
 
 function statusClass(status: string): string {
@@ -46,6 +55,15 @@ export function CustomerESignature({
   documents: EsignatureDocument[];
 }) {
   const canSend = useCan("customer_data:create");
+  const router = useRouter();
+  // The active in-person signing session (its url is a short-lived credential — kept only in
+  // memory while the overlay is open, never persisted).
+  const [session, setSession] = useState<SigningSession | null>(null);
+
+  function closeSigning() {
+    setSession(null);
+    router.refresh(); // status may have advanced while signing
+  }
 
   return (
     <div className="space-y-4">
@@ -56,7 +74,7 @@ export function CustomerESignature({
           </CardHeader>
           <CardContent className="space-y-3">
             {templates.map((t) => (
-              <TemplateSender key={t.id} customerId={customerId} template={t} />
+              <TemplateSender key={t.id} customerId={customerId} template={t} onSession={setSession} />
             ))}
           </CardContent>
         </Card>
@@ -72,17 +90,33 @@ export function CustomerESignature({
           ) : (
             <div className="space-y-2">
               {documents.map((d) => (
-                <DocumentRow key={d.id} customerId={customerId} document={d} />
+                <DocumentRow
+                  key={d.id}
+                  customerId={customerId}
+                  document={d}
+                  canSign={canSend}
+                  onSession={setSession}
+                />
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {session && <SigningOverlay url={session.url} onClose={closeSigning} />}
     </div>
   );
 }
 
-function TemplateSender({ customerId, template }: { customerId: number; template: EsignatureTemplate }) {
+function TemplateSender({
+  customerId,
+  template,
+  onSession,
+}: {
+  customerId: number;
+  template: EsignatureTemplate;
+  onSession: (s: SigningSession) => void;
+}) {
   const roles = manualRoles(template);
   const [recipients, setRecipients] = useState<Record<string, EsignatureManualRecipient>>({});
   const [sendNow, setSendNow] = useState(false);
@@ -92,12 +126,18 @@ function TemplateSender({ customerId, template }: { customerId: number; template
     setRecipients((prev) => ({ ...prev, [roleKey]: { ...prev[roleKey], roleKey, [field]: value } }));
   }
 
-  function send() {
+  function missingManual(): boolean {
     for (const role of roles) {
       if (!recipients[role.roleKey]?.email?.trim()) {
-        return toast.error(`Enter an email for ${role.label || role.roleKey}.`);
+        toast.error(`Enter an email for ${role.label || role.roleKey}.`);
+        return true;
       }
     }
+    return false;
+  }
+
+  function send() {
+    if (missingManual()) return;
     startTransition(async () => {
       const res = await sendEsignatureDocument(customerId, template.id, Object.values(recipients), sendNow);
       if (!res.ok) {
@@ -110,6 +150,19 @@ function TemplateSender({ customerId, template }: { customerId: number; template
     });
   }
 
+  function signInPerson() {
+    if (missingManual()) return;
+    startTransition(async () => {
+      const res = await startInPersonFromTemplate(customerId, template.id, Object.values(recipients));
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      setRecipients({});
+      onSession(res.data);
+    });
+  }
+
   return (
     <div className="rounded-md border p-3 space-y-2">
       <div className="flex flex-wrap items-center gap-2">
@@ -119,6 +172,10 @@ function TemplateSender({ customerId, template }: { customerId: number; template
             <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />
             Email signers now
           </label>
+          <Button variant="outline" size="sm" onClick={signInPerson} disabled={pending} className="gap-1.5">
+            <PenLine className="h-3.5 w-3.5" />
+            Sign in person
+          </Button>
           <Button size="sm" onClick={send} disabled={pending} className="gap-1.5">
             {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
             Send
@@ -147,16 +204,35 @@ function TemplateSender({ customerId, template }: { customerId: number; template
   );
 }
 
-function DocumentRow({ customerId, document }: { customerId: number; document: EsignatureDocument }) {
+function DocumentRow({
+  customerId,
+  document,
+  canSign,
+  onSession,
+}: {
+  customerId: number;
+  document: EsignatureDocument;
+  canSign: boolean;
+  onSession: (s: SigningSession) => void;
+}) {
   const [pending, startTransition] = useTransition();
+  const signable = canSign && isSignable(document.status);
 
   function refresh() {
     startTransition(async () => {
       const res = await refreshEsignatureDocument(customerId, document.id);
+      if (!res.ok) toast.error(res.error);
+    });
+  }
+
+  function signInPerson() {
+    startTransition(async () => {
+      const res = await launchInPersonSigning(document.id);
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
+      onSession(res.data);
     });
   }
 
@@ -180,9 +256,37 @@ function DocumentRow({ customerId, document }: { customerId: number; document: E
       >
         {document.status}
       </span>
+      {signable && (
+        <Button variant="outline" size="sm" onClick={signInPerson} disabled={pending} className="gap-1.5">
+          <PenLine className="h-3.5 w-3.5" />
+          Sign in person
+        </Button>
+      )}
       <Button variant="ghost" size="sm" onClick={refresh} disabled={pending} title="Refresh status">
         {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
       </Button>
+    </div>
+  );
+}
+
+// Full-screen embedded signing surface (reuses the app's fixed-overlay pattern). The signer signs
+// on the rep's device; closing returns to the tab and re-pulls the document status.
+function SigningOverlay({ url, onClose }: { url: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-background" role="dialog" aria-modal="true">
+      <div className="flex items-center justify-between border-b px-4 py-2">
+        <span className="text-sm font-medium">In-person signing</span>
+        <Button variant="ghost" size="sm" onClick={onClose} className="gap-1.5">
+          <X className="h-4 w-4" />
+          Done
+        </Button>
+      </div>
+      <iframe
+        src={url}
+        title="Sign document"
+        className="min-h-0 w-full flex-1 border-0"
+        allow="camera; microphone"
+      />
     </div>
   );
 }

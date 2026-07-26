@@ -358,3 +358,10 @@ export type EsignatureManualRecipient = {
   email?: string;
   phone?: string;
 };
+
+// A minted in-person signing session. `url` is a short-lived credential — embed it, don't store it.
+export type SigningSession = {
+  launchId?: string | null;
+  url: string;
+  expiresAt?: string | null;
+};
