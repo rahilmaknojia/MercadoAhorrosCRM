@@ -6,17 +6,19 @@ import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { useCan, useIsPrivileged } from "@/components/permissions-provider";
 import { Button } from "@/components/ui/button";
-import { Database, LogOut, User, Users } from "lucide-react";
+import { Database, FileSignature, LogOut, User, Users } from "lucide-react";
 
 export function SettingsNav() {
   const pathname = usePathname();
   const privileged = useIsPrivileged();
   const canReadMasterData = useCan("master_data:read");
+  const canManageEsignature = useCan("esignature_templates:manage");
 
   const items = [
     { href: "/settings/profile", label: "Profile", icon: User, show: true },
     { href: "/settings/users", label: "Users", icon: Users, show: privileged },
     { href: "/settings/master-data", label: "Master data", icon: Database, show: canReadMasterData },
+    { href: "/settings/esignature", label: "eSignature", icon: FileSignature, show: canManageEsignature },
   ].filter((i) => i.show);
 
   async function logout() {

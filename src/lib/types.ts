@@ -273,3 +273,108 @@ export type PageInfo = {
   HasPreviousPage: boolean;
   HasNextPage: boolean;
 };
+
+// ---------------------------------------------------------------- eSignature
+
+export type EsignatureRoleSource = "customer" | "preset" | "manual";
+export type EsignatureTokenSource = "customer" | "vendor" | "storeMetadata" | "literal";
+
+export type EsignatureRoleMapping = {
+  roleKey: string;
+  label?: string;
+  source: EsignatureRoleSource;
+  emailField?: string;
+  nameField?: string;
+  phoneField?: string;
+};
+
+export type EsignatureMergeTokenMapping = {
+  token: string;
+  source: EsignatureTokenSource;
+  field?: string; // customer
+  vendorCode?: string; // vendor
+  property?: string; // vendor: accountNumber | json key
+  path?: string; // storeMetadata dotted path
+  value?: string; // literal
+};
+
+export type EsignatureTemplateMapping = {
+  roles: EsignatureRoleMapping[];
+  mergeTokens: EsignatureMergeTokenMapping[];
+};
+
+// A CRM-registered template (mapping stored as a JSON string in mappingJson).
+export type EsignatureTemplate = {
+  id: number;
+  name: string;
+  externalTemplateId: string;
+  description?: string | null;
+  tag?: string | null;
+  isActive: boolean;
+  mappingJson: string;
+  createdOn?: string | null;
+  modifiedOn?: string | null;
+};
+
+// A tracked signing instance for a customer.
+export type EsignatureDocument = {
+  id: number;
+  customerId: number;
+  esignatureTemplateId?: number | null;
+  externalEnvelopeId: string;
+  externalTemplateId?: string | null;
+  name: string;
+  tag?: string | null;
+  status: string;
+  recipientsJson?: string | null;
+  sentOn?: string | null;
+  completedOn?: string | null;
+  lastSyncedOn?: string | null;
+  hasSignedPdf: boolean;
+  createdOn?: string | null;
+};
+
+// A recipient inside EsignatureDocument.recipientsJson (snapshot of the envelope's signers).
+export type EsignatureDocumentRecipient = {
+  id?: string | null;
+  role?: string | null;
+  name?: string | null;
+  email?: string | null;
+  status?: string | null;
+  routingOrder?: number;
+};
+
+// A NinjaFlow template as returned by the onboarding picker (GET .../available).
+export type EsignatureAvailableRole = {
+  key: string;
+  label?: string;
+  routingOrder?: number;
+  role?: string;
+  presetName?: string | null;
+  presetEmail?: string | null;
+  optional?: boolean;
+};
+
+export type EsignatureAvailableTemplate = {
+  id: string;
+  name?: string;
+  roles?: EsignatureAvailableRole[];
+  mergeTokens?: string[];
+  fieldCount?: number;
+  hasDraft?: boolean;
+};
+
+// A signer entered at initiation time for a `manual` role.
+export type EsignatureManualRecipient = {
+  roleKey: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+};
+
+// A minted in-person signing session. `url` is a short-lived credential — embed it, don't store it.
+export type SigningSession = {
+  launchId?: string | null;
+  url: string;
+  expiresAt?: string | null;
+};
