@@ -5,8 +5,10 @@ import { apiFetch } from "@/lib/server/api";
 import type { ActionResult } from "@/app/(app)/customers/[id]/cooler-actions";
 import type { EsignatureManualRecipient, SigningSession } from "@/lib/types";
 
-// A result that may carry data (the signing session), mirroring settings/esignature/actions.ts.
-type LaunchResult = { ok: true; data: SigningSession } | { ok: false; error: string };
+// A result that may carry data (the signing session + which document it belongs to, so the caller
+// can re-sync that document's status after the session closes).
+type LaunchData = { session: SigningSession; documentId: number };
+type LaunchResult = { ok: true; data: LaunchData } | { ok: false; error: string };
 
 async function readError(res: Response, fallback: string): Promise<string> {
   // Prefer the API's own message — it relays upstream (NinjaFlow) 4xx bodies, so a 403 here is
@@ -63,7 +65,7 @@ export async function launchInPersonSigning(
   }).catch(() => null);
   if (!res) return { ok: false, error: "Could not reach the API." };
   if (!res.ok) return { ok: false, error: await readError(res, "Could not start signing.") };
-  return { ok: true, data: (await res.json()) as SigningSession };
+  return { ok: true, data: { session: (await res.json()) as SigningSession, documentId } };
 }
 
 /**
@@ -83,6 +85,20 @@ export async function startInPersonFromTemplate(
   if (!res) return { ok: false, error: "Could not reach the API." };
   if (!res.ok) return { ok: false, error: await readError(res, "Could not start signing.") };
   revalidatePath(`/customers/${customerId}`);
-  const body = (await res.json()) as { session: SigningSession };
-  return { ok: true, data: body.session };
+  const body = (await res.json()) as { session: SigningSession; document: { id: number } };
+  return { ok: true, data: { session: body.session, documentId: body.document.id } };
+}
+
+/** Remove a tracked document (local cleanup — does not void the NinjaFlow envelope). */
+export async function deleteEsignatureDocument(
+  customerId: number,
+  documentId: number
+): Promise<ActionResult> {
+  const res = await apiFetch(`/api/esignature-documents/${documentId}`, {
+    method: "DELETE",
+  }).catch(() => null);
+  if (!res) return { ok: false, error: "Could not reach the API." };
+  if (!res.ok) return { ok: false, error: await readError(res, "Could not delete the document.") };
+  revalidatePath(`/customers/${customerId}`);
+  return { ok: true };
 }

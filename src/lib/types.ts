@@ -309,6 +309,7 @@ export type EsignatureTemplate = {
   name: string;
   externalTemplateId: string;
   description?: string | null;
+  tag?: string | null;
   isActive: boolean;
   mappingJson: string;
   createdOn?: string | null;
@@ -323,12 +324,24 @@ export type EsignatureDocument = {
   externalEnvelopeId: string;
   externalTemplateId?: string | null;
   name: string;
+  tag?: string | null;
   status: string;
+  recipientsJson?: string | null;
   sentOn?: string | null;
   completedOn?: string | null;
   lastSyncedOn?: string | null;
   hasSignedPdf: boolean;
   createdOn?: string | null;
+};
+
+// A recipient inside EsignatureDocument.recipientsJson (snapshot of the envelope's signers).
+export type EsignatureDocumentRecipient = {
+  id?: string | null;
+  role?: string | null;
+  name?: string | null;
+  email?: string | null;
+  status?: string | null;
+  routingOrder?: number;
 };
 
 // A NinjaFlow template as returned by the onboarding picker (GET .../available).

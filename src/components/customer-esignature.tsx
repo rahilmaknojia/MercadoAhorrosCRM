@@ -1,27 +1,35 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
+  deleteEsignatureDocument,
   launchInPersonSigning,
   refreshEsignatureDocument,
   sendEsignatureDocument,
   startInPersonFromTemplate,
 } from "@/app/(app)/customers/[id]/esignature-actions";
 import { useCan } from "@/components/permissions-provider";
+import { PdfViewerModal } from "@/components/pdf-viewer-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { tagBadgeClass } from "@/lib/esign";
 import type {
   EsignatureDocument,
+  EsignatureDocumentRecipient,
   EsignatureManualRecipient,
   EsignatureTemplate,
   EsignatureTemplateMapping,
-  SigningSession,
 } from "@/lib/types";
-import { Loader2, PenLine, RefreshCw, Send, X } from "lucide-react";
+import { Download, Eye, Loader2, PenLine, RefreshCw, Send, Trash2, X } from "lucide-react";
+
+// The active in-person session: the signing url (a short-lived credential, kept only in memory)
+// plus which document it belongs to, so we can re-sync that document's status when it closes.
+type ActiveSession = { url: string; documentId: number };
+type Signer = { name: string; email: string };
 
 function manualRoles(t: EsignatureTemplate) {
   try {
@@ -37,6 +45,34 @@ function isSignable(status: string): boolean {
   return !TERMINAL.has(status.toLowerCase());
 }
 
+// Tag filter sentinels + when to switch from tabs to a dropdown.
+const ALL_TAGS = "__all__";
+const UNTAGGED = "__untagged__";
+const TAG_TABS_LIMIT = 10; // <= this many distinct tags => tabs; more => dropdown filter
+const selectClass =
+  "h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
+
+// A sealed PDF exists once the envelope is completed/signed.
+function isCompleted(doc: EsignatureDocument): boolean {
+  return ["completed", "signed"].includes(doc.status.toLowerCase()) || doc.hasSignedPdf;
+}
+
+// Progress across the actual signers (CarbonCopy recipients don't sign, so they don't count).
+function signProgress(recipientsJson?: string | null): { signed: number; total: number } | null {
+  if (!recipientsJson) return null;
+  try {
+    const recipients = JSON.parse(recipientsJson) as EsignatureDocumentRecipient[];
+    const signers = recipients.filter((r) => (r.role ?? "").toLowerCase() !== "carboncopy");
+    if (signers.length === 0) return null;
+    const done = signers.filter((r) =>
+      ["signed", "completed"].includes((r.status ?? "").toLowerCase())
+    ).length;
+    return { signed: done, total: signers.length };
+  } catch {
+    return null;
+  }
+}
+
 function statusClass(status: string): string {
   const s = status.toLowerCase();
   if (s === "completed" || s === "signed") return "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400";
@@ -49,21 +85,68 @@ export function CustomerESignature({
   customerId,
   templates,
   documents,
+  currentUser,
+  orgUsers,
 }: {
   customerId: number;
   templates: EsignatureTemplate[];
   documents: EsignatureDocument[];
+  currentUser: Signer | null;
+  orgUsers: Signer[];
 }) {
   const canSend = useCan("customer_data:create");
+  const canDelete = useCan("customer_data:delete");
   const router = useRouter();
-  // The active in-person signing session (its url is a short-lived credential — kept only in
-  // memory while the overlay is open, never persisted).
-  const [session, setSession] = useState<SigningSession | null>(null);
+  const [session, setSession] = useState<ActiveSession | null>(null);
+  const [activeTag, setActiveTag] = useState<string>(ALL_TAGS);
 
-  function closeSigning() {
+  async function closeSigning() {
+    const active = session;
     setSession(null);
-    router.refresh(); // status may have advanced while signing
+    // Pull the latest status from NinjaFlow so a just-completed signature shows up.
+    if (active) await refreshEsignatureDocument(customerId, active.documentId);
+    router.refresh();
   }
+
+  // Group documents by their (single) tag so the list reads as a tag view. Untagged last.
+  const groupedByTag = useMemo(() => {
+    const map = new Map<string, EsignatureDocument[]>();
+    for (const d of documents) {
+      const key = d.tag?.trim() || "";
+      const existing = map.get(key);
+      if (existing) existing.push(d);
+      else map.set(key, [d]);
+    }
+    return [...map.entries()].sort((a, b) =>
+      a[0] === "" ? 1 : b[0] === "" ? -1 : a[0].localeCompare(b[0])
+    );
+  }, [documents]);
+
+  // Distinct tags + counts drive the tag filter. Few tags => tabs; many => a dropdown.
+  const tagInfo = useMemo(() => {
+    const counts = new Map<string, number>();
+    let untagged = 0;
+    for (const d of documents) {
+      const t = d.tag?.trim();
+      if (t) counts.set(t, (counts.get(t) ?? 0) + 1);
+      else untagged++;
+    }
+    const tags = [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    return { tags, untagged };
+  }, [documents]);
+
+  const tabOptions = [
+    { value: ALL_TAGS, label: "All", count: documents.length },
+    ...tagInfo.tags.map(([t, c]) => ({ value: t, label: t, count: c })),
+    ...(tagInfo.untagged > 0 ? [{ value: UNTAGGED, label: "Untagged", count: tagInfo.untagged }] : []),
+  ];
+  const useTabs = tagInfo.tags.length <= TAG_TABS_LIMIT;
+
+  const filteredDocs = useMemo(() => {
+    if (activeTag === ALL_TAGS) return documents;
+    if (activeTag === UNTAGGED) return documents.filter((d) => !d.tag?.trim());
+    return documents.filter((d) => d.tag?.trim() === activeTag);
+  }, [documents, activeTag]);
 
   return (
     <div className="space-y-4">
@@ -74,7 +157,14 @@ export function CustomerESignature({
           </CardHeader>
           <CardContent className="space-y-3">
             {templates.map((t) => (
-              <TemplateSender key={t.id} customerId={customerId} template={t} onSession={setSession} />
+              <TemplateSender
+                key={t.id}
+                customerId={customerId}
+                template={t}
+                onSession={setSession}
+                currentUser={currentUser}
+                orgUsers={orgUsers}
+              />
             ))}
           </CardContent>
         </Card>
@@ -88,16 +178,90 @@ export function CustomerESignature({
           {documents.length === 0 ? (
             <p className="text-sm text-muted-foreground">No documents yet.</p>
           ) : (
-            <div className="space-y-2">
-              {documents.map((d) => (
-                <DocumentRow
-                  key={d.id}
-                  customerId={customerId}
-                  document={d}
-                  canSign={canSend}
-                  onSession={setSession}
-                />
-              ))}
+            <div className="space-y-3">
+              {tagInfo.tags.length > 0 &&
+                (useTabs ? (
+                  <div className="flex flex-wrap gap-1.5 border-b pb-2">
+                    {tabOptions.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setActiveTag(opt.value)}
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                          activeTag === opt.value
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-transparent text-muted-foreground hover:bg-muted"
+                        )}
+                      >
+                        {opt.label}
+                        <span className="ml-1 opacity-70">{opt.count}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Tag</span>
+                    <select
+                      className={`${selectClass} w-full max-w-xs`}
+                      value={activeTag}
+                      onChange={(e) => setActiveTag(e.target.value)}
+                    >
+                      {tabOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label} ({opt.count})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+
+              {activeTag === ALL_TAGS ? (
+                <div className="space-y-4">
+                  {groupedByTag.map(([tag, docs]) => (
+                    <div key={tag || "__untagged__"} className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        {tag ? (
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-xs font-medium",
+                              tagBadgeClass(tag)
+                            )}
+                          >
+                            {tag}
+                          </span>
+                        ) : (
+                          <span className="text-xs font-medium text-muted-foreground">Untagged</span>
+                        )}
+                        <span className="text-xs text-muted-foreground">{docs.length}</span>
+                      </div>
+                      {docs.map((d) => (
+                        <DocumentRow
+                          key={d.id}
+                          customerId={customerId}
+                          document={d}
+                          canSign={canSend}
+                          canDelete={canDelete}
+                          onSession={setSession}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {filteredDocs.map((d) => (
+                    <DocumentRow
+                      key={d.id}
+                      customerId={customerId}
+                      document={d}
+                      canSign={canSend}
+                      canDelete={canDelete}
+                      onSession={setSession}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </CardContent>
@@ -108,22 +272,74 @@ export function CustomerESignature({
   );
 }
 
+const CUSTOM_SIGNER = "__custom__";
+
 function TemplateSender({
   customerId,
   template,
   onSession,
+  currentUser,
+  orgUsers,
 }: {
   customerId: number;
   template: EsignatureTemplate;
-  onSession: (s: SigningSession) => void;
+  onSession: (s: ActiveSession) => void;
+  currentUser: Signer | null;
+  orgUsers: Signer[];
 }) {
   const roles = manualRoles(template);
-  const [recipients, setRecipients] = useState<Record<string, EsignatureManualRecipient>>({});
+
+  // Users pickable for a manual role: the logged-in user first ("Me"), then other org users.
+  const userOptions = useMemo(() => {
+    const opts: { value: string; label: string; name: string; email: string }[] = [];
+    const seen = new Set<string>();
+    if (currentUser?.email) {
+      opts.push({
+        value: currentUser.email,
+        label: `Me — ${currentUser.name || currentUser.email}`,
+        name: currentUser.name,
+        email: currentUser.email,
+      });
+      seen.add(currentUser.email.toLowerCase());
+    }
+    for (const u of orgUsers) {
+      if (!u.email || seen.has(u.email.toLowerCase())) continue;
+      seen.add(u.email.toLowerCase());
+      opts.push({ value: u.email, label: `${u.name} — ${u.email}`, name: u.name, email: u.email });
+    }
+    return opts;
+  }, [currentUser, orgUsers]);
+
+  // Prefill each manual role with the logged-in user so the rep is filled in by default.
+  const [recipients, setRecipients] = useState<Record<string, EsignatureManualRecipient>>(() => {
+    const init: Record<string, EsignatureManualRecipient> = {};
+    if (currentUser?.email) {
+      for (const role of roles) {
+        init[role.roleKey] = { roleKey: role.roleKey, name: currentUser.name, email: currentUser.email };
+      }
+    }
+    return init;
+  });
   const [sendNow, setSendNow] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function setField(roleKey: string, field: "name" | "email", value: string) {
     setRecipients((prev) => ({ ...prev, [roleKey]: { ...prev[roleKey], roleKey, [field]: value } }));
+  }
+
+  function pickerValue(roleKey: string): string {
+    const email = recipients[roleKey]?.email?.trim().toLowerCase();
+    const match = userOptions.find((o) => o.email.toLowerCase() === email);
+    return match ? match.value : CUSTOM_SIGNER;
+  }
+
+  function pickUser(roleKey: string, value: string) {
+    if (value === CUSTOM_SIGNER) {
+      setRecipients((prev) => ({ ...prev, [roleKey]: { roleKey, name: "", email: "" } }));
+      return;
+    }
+    const opt = userOptions.find((o) => o.value === value);
+    if (opt) setRecipients((prev) => ({ ...prev, [roleKey]: { roleKey, name: opt.name, email: opt.email } }));
   }
 
   function missingManual(): boolean {
@@ -159,7 +375,7 @@ function TemplateSender({
         return;
       }
       setRecipients({});
-      onSession(res.data);
+      onSession({ url: res.data.session.url, documentId: res.data.documentId });
     });
   }
 
@@ -183,19 +399,38 @@ function TemplateSender({
         </div>
       </div>
       {roles.length > 0 && (
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2">
           {roles.map((role) => (
-            <div key={role.roleKey} className="grid grid-cols-2 gap-1.5">
-              <Input
-                placeholder={`${role.label || role.roleKey} name`}
-                value={recipients[role.roleKey]?.name ?? ""}
-                onChange={(e) => setField(role.roleKey, "name", e.target.value)}
-              />
-              <Input
-                placeholder={`${role.label || role.roleKey} email`}
-                value={recipients[role.roleKey]?.email ?? ""}
-                onChange={(e) => setField(role.roleKey, "email", e.target.value)}
-              />
+            <div key={role.roleKey} className="space-y-1.5">
+              <div className="text-xs font-medium text-muted-foreground">
+                {role.label || role.roleKey}
+              </div>
+              {userOptions.length > 0 && (
+                <select
+                  className={`${selectClass} w-full`}
+                  value={pickerValue(role.roleKey)}
+                  onChange={(e) => pickUser(role.roleKey, e.target.value)}
+                >
+                  {userOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_SIGNER}>Someone else…</option>
+                </select>
+              )}
+              <div className="grid grid-cols-2 gap-1.5">
+                <Input
+                  placeholder={`${role.label || role.roleKey} name`}
+                  value={recipients[role.roleKey]?.name ?? ""}
+                  onChange={(e) => setField(role.roleKey, "name", e.target.value)}
+                />
+                <Input
+                  placeholder={`${role.label || role.roleKey} email`}
+                  value={recipients[role.roleKey]?.email ?? ""}
+                  onChange={(e) => setField(role.roleKey, "email", e.target.value)}
+                />
+              </div>
             </div>
           ))}
         </div>
@@ -208,20 +443,35 @@ function DocumentRow({
   customerId,
   document,
   canSign,
+  canDelete,
   onSession,
 }: {
   customerId: number;
   document: EsignatureDocument;
   canSign: boolean;
-  onSession: (s: SigningSession) => void;
+  canDelete: boolean;
+  onSession: (s: ActiveSession) => void;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [viewOpen, setViewOpen] = useState(false);
   const signable = canSign && isSignable(document.status);
+  const completed = isCompleted(document);
+  const progress = signProgress(document.recipientsJson);
+  const basePath = `/customers/${customerId}/esignature/${document.id}/download`;
+
+  function downloadPdf() {
+    window.open(`${basePath}?download=true`, "_blank"); // full signed PDF (skip-export lives in the viewer)
+  }
 
   function refresh() {
     startTransition(async () => {
       const res = await refreshEsignatureDocument(customerId, document.id);
-      if (!res.ok) toast.error(res.error);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      router.refresh();
     });
   }
 
@@ -232,45 +482,99 @@ function DocumentRow({
         toast.error(res.error);
         return;
       }
-      onSession(res.data);
+      onSession({ url: res.data.session.url, documentId: res.data.documentId });
+    });
+  }
+
+  function remove() {
+    if (!confirm(`Delete "${document.name}"? This removes the tracking record from the CRM.`)) return;
+    startTransition(async () => {
+      const res = await deleteEsignatureDocument(customerId, document.id);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Document removed.");
+      router.refresh();
     });
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-md border p-3">
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium">{document.name}</div>
-        <div className="text-xs text-muted-foreground">
-          {document.lastSyncedOn
-            ? `Updated ${new Date(document.lastSyncedOn).toLocaleString()}`
-            : document.createdOn
-              ? `Created ${new Date(document.createdOn).toLocaleString()}`
-              : ""}
+    <div className="space-y-2 rounded-md border p-3">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium">{document.name}</div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>
+              {document.lastSyncedOn
+                ? `Updated ${new Date(document.lastSyncedOn).toLocaleString()}`
+                : document.createdOn
+                  ? `Created ${new Date(document.createdOn).toLocaleString()}`
+                  : ""}
+            </span>
+            {progress && (
+              <span className="rounded bg-muted px-1.5 py-0.5 font-medium">
+                {progress.signed}/{progress.total} signed
+              </span>
+            )}
+          </div>
         </div>
-      </div>
-      <span
-        className={cn(
-          "ml-auto rounded-full px-2.5 py-0.5 text-xs font-medium",
-          statusClass(document.status)
+        <span
+          className={cn(
+            "ml-auto rounded-full px-2.5 py-0.5 text-xs font-medium",
+            statusClass(document.status)
+          )}
+        >
+          {document.status}
+        </span>
+        {completed && (
+          <>
+            <Button variant="outline" size="sm" onClick={() => setViewOpen(true)} className="gap-1.5">
+              <Eye className="h-3.5 w-3.5" />
+              View
+            </Button>
+            <Button variant="ghost" size="sm" onClick={downloadPdf} title="Download signed PDF">
+              <Download className="h-4 w-4" />
+            </Button>
+          </>
         )}
-      >
-        {document.status}
-      </span>
-      {signable && (
-        <Button variant="outline" size="sm" onClick={signInPerson} disabled={pending} className="gap-1.5">
-          <PenLine className="h-3.5 w-3.5" />
-          Sign in person
+        {signable && (
+          <Button variant="outline" size="sm" onClick={signInPerson} disabled={pending} className="gap-1.5">
+            <PenLine className="h-3.5 w-3.5" />
+            Sign in person
+          </Button>
+        )}
+        <Button variant="ghost" size="sm" onClick={refresh} disabled={pending} title="Refresh status">
+          {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
         </Button>
+        {/* Completed documents are sealed — no delete. */}
+        {canDelete && !completed && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={remove}
+            disabled={pending}
+            title="Delete tracking record"
+            className="text-destructive"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+
+      {viewOpen && (
+        <PdfViewerModal
+          basePath={basePath}
+          title={document.name}
+          onClose={() => setViewOpen(false)}
+        />
       )}
-      <Button variant="ghost" size="sm" onClick={refresh} disabled={pending} title="Refresh status">
-        {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-      </Button>
     </div>
   );
 }
 
 // Full-screen embedded signing surface (reuses the app's fixed-overlay pattern). The signer signs
-// on the rep's device; closing returns to the tab and re-pulls the document status.
+// on the rep's device; closing returns to the tab and re-syncs the document status.
 function SigningOverlay({ url, onClose }: { url: string; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background" role="dialog" aria-modal="true">

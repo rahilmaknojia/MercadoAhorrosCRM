@@ -39,6 +39,7 @@ type TemplateInput = {
   externalTemplateId: string;
   name: string;
   description?: string | null;
+  tag?: string | null;
   isActive: boolean;
   mapping: EsignatureTemplateMapping;
 };

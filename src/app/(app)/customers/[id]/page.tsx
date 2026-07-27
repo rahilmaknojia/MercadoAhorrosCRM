@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { apiFetch } from "@/lib/server/api";
+import { getSession } from "@/lib/server/auth";
+import { authApiFetch } from "@/lib/server/auth-api";
 import {
   COOLER_TYPES,
+  type AdminUser,
   type CoolerDocument,
   type Customer,
   type CustomerVendorSelectionGroup,
@@ -159,6 +163,27 @@ export default async function CustomerDetailPage({
     );
   }
   const customer = (await res.json()) as Customer;
+
+  // Field-rep prefill for manual signer roles: the logged-in user, plus org users to pick from.
+  // The auth admin list-users endpoint is owner/admin-only, so a non-privileged rep just gets
+  // themselves (the fetch fails quietly and orgUsers stays empty).
+  const cookieHeader = (await headers()).get("cookie");
+  const viewer = await getSession(cookieHeader);
+  const currentUser = viewer ? { name: viewer.name ?? "", email: viewer.email } : null;
+  let orgUsers: { name: string; email: string }[] = [];
+  try {
+    const usersRes = await authApiFetch(
+      "/api/auth/admin/list-users?limit=200&sortBy=name&sortDirection=asc"
+    );
+    if (usersRes.ok) {
+      const body = (await usersRes.json()) as { users?: AdminUser[] };
+      orgUsers = (body.users ?? [])
+        .filter((u) => u.email)
+        .map((u) => ({ name: u.name || u.email, email: u.email }));
+    }
+  } catch {
+    // non-privileged or auth service unavailable — fall back to current user only
+  }
 
   // Store metadata, the cooler catalogue and vendor selections (activity is loaded + paginated
   // client-side). The catalogue drives the cooler dropdowns; inactive values are excluded so they
@@ -440,6 +465,8 @@ export default async function CustomerDetailPage({
                 customerId={customer.id}
                 templates={esignTemplates}
                 documents={esignDocuments}
+                currentUser={currentUser}
+                orgUsers={orgUsers}
               />
             ),
           },

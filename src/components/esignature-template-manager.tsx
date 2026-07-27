@@ -3,6 +3,8 @@
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { CUSTOMER_FIELDS, COOLER_METADATA_PATHS } from "@/lib/report";
+import { cn } from "@/lib/utils";
+import { tagBadgeClass } from "@/lib/esign";
 import type {
   EsignatureAvailableTemplate,
   EsignatureMergeTokenMapping,
@@ -34,6 +36,7 @@ type Editor = {
   externalTemplateId: string;
   name: string;
   description: string;
+  tag: string;
   isActive: boolean;
   roles: EsignatureRoleMapping[];
   tokens: EsignatureMergeTokenMapping[];
@@ -78,6 +81,7 @@ export function EsignatureTemplateManager({
         externalTemplateId: "",
         name: "",
         description: "",
+        tag: "",
         isActive: true,
         roles: [],
         tokens: [],
@@ -137,6 +141,7 @@ export function EsignatureTemplateManager({
       externalTemplateId: t.externalTemplateId,
       name: t.name,
       description: t.description ?? "",
+      tag: t.tag ?? "",
       isActive: t.isActive,
       roles: mapping.roles,
       tokens: mapping.mergeTokens,
@@ -155,12 +160,14 @@ export function EsignatureTemplateManager({
               externalTemplateId: editor.externalTemplateId,
               name: editor.name.trim(),
               description: editor.description || null,
+              tag: editor.tag.trim() || null,
               isActive: editor.isActive,
               mapping,
             })
           : await updateEsignatureTemplate(editor.id!, {
               name: editor.name.trim(),
               description: editor.description || null,
+              tag: editor.tag.trim() || null,
               isActive: editor.isActive,
               mapping,
             });
@@ -234,6 +241,17 @@ export function EsignatureTemplateManager({
                   value={editor.description}
                   onChange={(e) => setEditor({ ...editor, description: e.target.value })}
                 />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Tag</label>
+                <Input
+                  placeholder="e.g. Coke contract"
+                  value={editor.tag}
+                  onChange={(e) => setEditor({ ...editor, tag: e.target.value })}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Categorizes documents from this template; one tag per template.
+                </p>
               </div>
             </div>
             <label className="flex items-center gap-2 text-sm">
@@ -396,6 +414,11 @@ export function EsignatureTemplateManager({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium">{t.name}</span>
+                    {t.tag && (
+                      <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", tagBadgeClass(t.tag))}>
+                        {t.tag}
+                      </span>
+                    )}
                     {!t.isActive && <Badge variant="secondary">Inactive</Badge>}
                   </div>
                   <div className="truncate text-xs text-muted-foreground">{t.externalTemplateId}</div>
