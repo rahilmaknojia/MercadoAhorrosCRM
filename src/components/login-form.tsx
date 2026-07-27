@@ -23,11 +23,12 @@ function MicrosoftIcon() {
 }
 
 export function LoginForm() {
-  const [showEmail, setShowEmail] = useState(false);
+  const [mode, setMode] = useState<"none" | "magic" | "password">("none");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<"ms" | "email" | null>(null);
+  const [loading, setLoading] = useState<"ms" | "email" | "magic" | null>(null);
+  const [magicSent, setMagicSent] = useState(false);
 
   async function signInMicrosoft() {
     setError(null);
@@ -70,6 +71,36 @@ export function LoginForm() {
     }
   }
 
+  async function sendMagicLink(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading("magic");
+    try {
+      const { error } = await authClient.signIn.magicLink({
+        email,
+        callbackURL: `${window.location.origin}/`,
+      });
+      if (error) {
+        setError(error.message ?? GENERIC_ERROR);
+        setLoading(null);
+        return;
+      }
+      // Neutral confirmation regardless of whether the address has an account,
+      // so the page can't be used to probe which emails are registered.
+      setMagicSent(true);
+      setLoading(null);
+    } catch {
+      setError(GENERIC_ERROR);
+      setLoading(null);
+    }
+  }
+
+  function resetEmailMethods() {
+    setMode("none");
+    setMagicSent(false);
+    setError(null);
+  }
+
   return (
     <div className="space-y-8">
       <div className="space-y-2">
@@ -103,17 +134,81 @@ export function LoginForm() {
           <span className="h-px flex-1 bg-border" />
         </div>
 
-        {!showEmail ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="h-11 w-full text-sm"
-            onClick={() => setShowEmail(true)}
-            disabled={loading !== null}
-          >
-            <Mail />
-            Sign in with email
-          </Button>
+        {magicSent ? (
+          <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-4 text-sm">
+            <p className="font-medium">Check your email</p>
+            <p className="text-muted-foreground">
+              If <span className="font-medium text-foreground">{email}</span> has an account, a
+              sign-in link is on its way. It expires shortly and can be used once.
+            </p>
+            <button
+              type="button"
+              onClick={resetEmailMethods}
+              className="text-xs font-medium text-muted-foreground underline-offset-4 hover:underline"
+            >
+              Use a different method
+            </button>
+          </div>
+        ) : mode === "none" ? (
+          <div className="space-y-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full text-sm"
+              onClick={() => {
+                setError(null);
+                setMode("magic");
+              }}
+              disabled={loading !== null}
+            >
+              <Mail />
+              Email me a sign-in link
+            </Button>
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setMode("password");
+              }}
+              disabled={loading !== null}
+              className="w-full text-center text-xs font-medium text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+            >
+              Sign in with a password instead
+            </button>
+          </div>
+        ) : mode === "magic" ? (
+          <form onSubmit={sendMagicLink} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="magic-email">Email address</Label>
+              <Input
+                id="magic-email"
+                type="email"
+                autoComplete="username"
+                className="h-11"
+                placeholder="you@mercadoahorros.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoFocus
+              />
+            </div>
+            <Button
+              type="submit"
+              className="h-11 w-full bg-brand text-brand-foreground hover:bg-brand/90"
+              disabled={loading !== null}
+            >
+              {loading === "magic" && <Loader2 className="animate-spin" />}
+              Send sign-in link
+            </Button>
+            <button
+              type="button"
+              onClick={resetEmailMethods}
+              disabled={loading !== null}
+              className="w-full text-center text-xs font-medium text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+            >
+              Back to sign-in options
+            </button>
+          </form>
         ) : (
           <form onSubmit={signInEmail} className="space-y-4">
             <div className="space-y-1.5">
@@ -158,6 +253,14 @@ export function LoginForm() {
               {loading === "email" && <Loader2 className="animate-spin" />}
               Sign in
             </Button>
+            <button
+              type="button"
+              onClick={resetEmailMethods}
+              disabled={loading !== null}
+              className="w-full text-center text-xs font-medium text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+            >
+              Back to sign-in options
+            </button>
           </form>
         )}
 
