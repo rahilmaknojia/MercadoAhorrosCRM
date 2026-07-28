@@ -99,6 +99,11 @@ export function CustomerESignature({
   const router = useRouter();
   const [session, setSession] = useState<ActiveSession | null>(null);
   const [activeTag, setActiveTag] = useState<string>(ALL_TAGS);
+  // Advanced filters (client-side — a customer has few documents): by status and by the
+  // Updated/Created date. Initial state is "no filter", so SSR and the first client render agree.
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   async function closeSigning() {
     const active = session;
@@ -108,10 +113,53 @@ export function CustomerESignature({
     router.refresh();
   }
 
+  // Distinct statuses present, for the status filter chips.
+  const availableStatuses = useMemo(() => {
+    const set = new Set<string>();
+    for (const d of documents) if (d.status) set.add(d.status);
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [documents]);
+
+  function toggleStatus(status: string) {
+    setStatusFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(status)) next.delete(status);
+      else next.add(status);
+      return next;
+    });
+  }
+
+  const hasActiveFilters = statusFilter.size > 0 || fromDate !== "" || toDate !== "";
+
+  function clearFilters() {
+    setStatusFilter(new Set());
+    setFromDate("");
+    setToDate("");
+  }
+
+  // Apply status + date filters first; the tag view (grouping, counts, tabs) is built from the
+  // result, so tag counts reflect the active filters. Date compares against Updated (lastSyncedOn)
+  // and falls back to Created; the day bounds are inclusive.
+  const visibleDocuments = useMemo(() => {
+    const from = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : null;
+    const to = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : null;
+    return documents.filter((d) => {
+      if (statusFilter.size > 0 && !statusFilter.has(d.status)) return false;
+      if (from !== null || to !== null) {
+        const raw = d.lastSyncedOn ?? d.createdOn;
+        if (!raw) return false;
+        const t = new Date(raw).getTime();
+        if (from !== null && t < from) return false;
+        if (to !== null && t > to) return false;
+      }
+      return true;
+    });
+  }, [documents, statusFilter, fromDate, toDate]);
+
   // Group documents by their (single) tag so the list reads as a tag view. Untagged last.
   const groupedByTag = useMemo(() => {
     const map = new Map<string, EsignatureDocument[]>();
-    for (const d of documents) {
+    for (const d of visibleDocuments) {
       const key = d.tag?.trim() || "";
       const existing = map.get(key);
       if (existing) existing.push(d);
@@ -120,33 +168,33 @@ export function CustomerESignature({
     return [...map.entries()].sort((a, b) =>
       a[0] === "" ? 1 : b[0] === "" ? -1 : a[0].localeCompare(b[0])
     );
-  }, [documents]);
+  }, [visibleDocuments]);
 
   // Distinct tags + counts drive the tag filter. Few tags => tabs; many => a dropdown.
   const tagInfo = useMemo(() => {
     const counts = new Map<string, number>();
     let untagged = 0;
-    for (const d of documents) {
+    for (const d of visibleDocuments) {
       const t = d.tag?.trim();
       if (t) counts.set(t, (counts.get(t) ?? 0) + 1);
       else untagged++;
     }
     const tags = [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
     return { tags, untagged };
-  }, [documents]);
+  }, [visibleDocuments]);
 
   const tabOptions = [
-    { value: ALL_TAGS, label: "All", count: documents.length },
+    { value: ALL_TAGS, label: "All", count: visibleDocuments.length },
     ...tagInfo.tags.map(([t, c]) => ({ value: t, label: t, count: c })),
     ...(tagInfo.untagged > 0 ? [{ value: UNTAGGED, label: "Untagged", count: tagInfo.untagged }] : []),
   ];
   const useTabs = tagInfo.tags.length <= TAG_TABS_LIMIT;
 
   const filteredDocs = useMemo(() => {
-    if (activeTag === ALL_TAGS) return documents;
-    if (activeTag === UNTAGGED) return documents.filter((d) => !d.tag?.trim());
-    return documents.filter((d) => d.tag?.trim() === activeTag);
-  }, [documents, activeTag]);
+    if (activeTag === ALL_TAGS) return visibleDocuments;
+    if (activeTag === UNTAGGED) return visibleDocuments.filter((d) => !d.tag?.trim());
+    return visibleDocuments.filter((d) => d.tag?.trim() === activeTag);
+  }, [visibleDocuments, activeTag]);
 
   return (
     <div className="space-y-4">
@@ -179,6 +227,64 @@ export function CustomerESignature({
             <p className="text-sm text-muted-foreground">No documents yet.</p>
           ) : (
             <div className="space-y-3">
+              {/* Advanced filters: status chips + an Updated/Created date range. Client-side, so
+                  the tag tabs above and the list below both reflect the current selection. */}
+              <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">Status</span>
+                  {availableStatuses.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => toggleStatus(s)}
+                      className={cn(
+                        "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                        statusFilter.has(s)
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-transparent text-muted-foreground hover:bg-muted"
+                      )}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Date</span>
+                  <input
+                    type="date"
+                    aria-label="From date"
+                    value={fromDate}
+                    max={toDate || undefined}
+                    onChange={(e) => setFromDate(e.target.value)}
+                    className={selectClass}
+                  />
+                  <span className="text-xs text-muted-foreground">to</span>
+                  <input
+                    type="date"
+                    aria-label="To date"
+                    value={toDate}
+                    min={fromDate || undefined}
+                    onChange={(e) => setToDate(e.target.value)}
+                    className={selectClass}
+                  />
+                  {hasActiveFilters && (
+                    <button
+                      type="button"
+                      onClick={clearFilters}
+                      className="ml-auto text-xs text-muted-foreground underline-offset-2 hover:underline"
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {visibleDocuments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No documents match the current filters.
+                </p>
+              ) : (
+                <>
               {tagInfo.tags.length > 0 &&
                 (useTabs ? (
                   <div className="flex flex-wrap gap-1.5 border-b pb-2">
@@ -261,6 +367,8 @@ export function CustomerESignature({
                     />
                   ))}
                 </div>
+              )}
+                </>
               )}
             </div>
           )}
@@ -505,7 +613,10 @@ function DocumentRow({
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">{document.name}</div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>
+            {/* toLocaleString() renders in the server's timezone/locale during SSR and the
+                browser's on hydration, so the two disagree — React #418. Suppress the mismatch
+                on this node and let the client (local-time) value win. */}
+            <span suppressHydrationWarning>
               {document.lastSyncedOn
                 ? `Updated ${new Date(document.lastSyncedOn).toLocaleString()}`
                 : document.createdOn
