@@ -14,6 +14,18 @@ function parseRecipients(csv: string): string[] {
     .filter((s) => s.includes("@"));
 }
 
+// Escape values interpolated into the report email HTML. Report names/descriptions and
+// customer-derived aggregate keys are user-controlled and would otherwise inject markup
+// (e.g. phishing links) into CRM-branded mail sent from the org's SES domain.
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 export type SaveReportPayload = {
   id?: number;
   name: string;
@@ -138,15 +150,18 @@ export async function sendReportEmailNow(
       .slice(0, 10)
       .map(
         (b) =>
-          `<tr><td style="padding:4px 12px 4px 0">${b.key}</td><td style="padding:4px 0;font-weight:bold">${b.count}</td></tr>`
+          `<tr><td style="padding:4px 12px 4px 0">${escapeHtml(b.key)}</td><td style="padding:4px 0;font-weight:bold">${b.count}</td></tr>`
       )
       .join("")}</table>`;
   }
 
   const crmUrl = (process.env.NEXT_PUBLIC_CRM_URL || "").replace(/\/$/, "");
-  const link = crmUrl ? `<p style="margin-top:16px"><a href="${crmUrl}/reports/${id}">Open report</a></p>` : "";
-  const html = `<div style="font-family:Arial,sans-serif;color:#18181b"><h2>${preset.name}</h2>${
-    preset.description ? `<p style="color:#71717a">${preset.description}</p>` : ""
+  // id is the numeric preset id from the route; encode defensively before it enters the href.
+  const link = crmUrl
+    ? `<p style="margin-top:16px"><a href="${crmUrl}/reports/${encodeURIComponent(id)}">Open report</a></p>`
+    : "";
+  const html = `<div style="font-family:Arial,sans-serif;color:#18181b"><h2>${escapeHtml(preset.name)}</h2>${
+    preset.description ? `<p style="color:#71717a">${escapeHtml(preset.description)}</p>` : ""
   }${summary}${link}</div>`;
 
   const result = await sendEmail({

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { authApiFetch } from "@/lib/server/auth-api";
+import { isPrivileged } from "@/lib/server/authz";
 import { APP_ROLES } from "@/lib/types";
 
 export type ActionResult = { ok: boolean; error?: string };
@@ -18,6 +19,7 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
 }
 
 export async function setUserRole(userId: string, role: string): Promise<ActionResult> {
+  if (!(await isPrivileged())) return { ok: false, error: "Not authorized." };
   if (!userId) return { ok: false, error: "Missing user." };
   if (!APP_ROLES.includes(role as (typeof APP_ROLES)[number])) {
     return { ok: false, error: "Unknown role." };
@@ -36,6 +38,7 @@ export async function setUserRole(userId: string, role: string): Promise<ActionR
 }
 
 export async function setUserBanned(userId: string, banned: boolean): Promise<ActionResult> {
+  if (!(await isPrivileged())) return { ok: false, error: "Not authorized." };
   if (!userId) return { ok: false, error: "Missing user." };
 
   const path = banned ? "/api/auth/admin/ban-user" : "/api/auth/admin/unban-user";
@@ -57,6 +60,7 @@ export async function setUserBanned(userId: string, banned: boolean): Promise<Ac
 }
 
 export async function inviteEmail(_prev: InviteState, formData: FormData): Promise<InviteState> {
+  if (!(await isPrivileged())) return { error: "You don't have permission to invite users." };
   const email = String(formData.get("email") ?? "").toLowerCase().trim();
   if (!email || !EMAIL_RE.test(email)) {
     return { error: "Enter a valid email address." };
@@ -77,6 +81,7 @@ export async function inviteEmail(_prev: InviteState, formData: FormData): Promi
 }
 
 export async function revokeInvitation(formData: FormData): Promise<void> {
+  if (!(await isPrivileged())) return;
   const email = String(formData.get("email") ?? "").toLowerCase().trim();
   if (!email) return;
   await authApiFetch(`/api/invitations/${encodeURIComponent(email)}`, {

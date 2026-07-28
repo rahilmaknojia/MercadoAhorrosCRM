@@ -8,7 +8,11 @@ const DEFAULT_COLUMNS = ["memberId", "businessName", "storeCity", "storeState", 
 
 function csvCell(value: unknown): string {
   if (value == null) return "";
-  const s = String(value);
+  let s = String(value);
+  // Neutralize spreadsheet formula injection: a customer-controlled field beginning with a
+  // formula trigger (= + - @, or a leading tab/CR) executes when the CSV is opened in Excel/
+  // Sheets. Prefix with an apostrophe so the cell is treated as text.
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
 }
 function csvRow(cells: unknown[]): string {

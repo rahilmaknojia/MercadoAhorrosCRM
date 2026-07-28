@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { apiFetch } from "@/lib/server/api";
+import { isPrivileged } from "@/lib/server/authz";
 
 export type TerritoryState = { error?: string };
 
@@ -11,6 +12,9 @@ export async function setTerritory(
   _prev: TerritoryState,
   formData: FormData
 ): Promise<TerritoryState> {
+  if (!(await isPrivileged())) {
+    return { error: "You don't have permission to manage territory access." };
+  }
   // Checked states + any comma-separated custom states, normalized to upper-case.
   const checked = formData.getAll("states").map((s) => String(s));
   const custom = String(formData.get("customStates") ?? "")

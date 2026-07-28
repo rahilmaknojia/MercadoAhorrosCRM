@@ -7,7 +7,24 @@ import { getJwt } from "@/lib/server/auth";
 // here so the server can attach the Bearer JWT. The actual byte PUTs go browser->S3.
 const API = process.env.API_BASE_URL!;
 
+// Path segments are interpolated into the upstream URL, and the WHATWG URL parser
+// collapses `..` (and percent-decoded `%2e%2e`), so an unvalidated segment could escape
+// the /api/fileupload/ prefix and reach arbitrary internal API endpoints with the service
+// JWT attached. Restrict each segment to a safe token and reject dot-segments.
+const SAFE_SEGMENT = /^[A-Za-z0-9._-]+$/;
+
+function isSafePath(path: string[]): boolean {
+  return (
+    path.length > 0 &&
+    path.every((seg) => seg !== "." && seg !== ".." && SAFE_SEGMENT.test(seg))
+  );
+}
+
 async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
+  if (!isSafePath(path)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const jwt = await getJwt(req.headers.get("cookie"));
   if (!jwt) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });

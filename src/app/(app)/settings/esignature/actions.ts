@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { apiFetch } from "@/lib/server/api";
+import { isPrivileged } from "@/lib/server/authz";
 import type {
   EsignatureAvailableTemplate,
   EsignatureTemplateMapping,
@@ -45,6 +46,7 @@ type TemplateInput = {
 };
 
 export async function createEsignatureTemplate(input: TemplateInput): Promise<EsignResult> {
+  if (!(await isPrivileged())) return { ok: false, error: "Not authorized." };
   const res = await apiFetch("/api/esignature-templates", {
     method: "POST",
     body: JSON.stringify(input),
@@ -59,6 +61,7 @@ export async function updateEsignatureTemplate(
   id: number,
   input: Omit<TemplateInput, "externalTemplateId">
 ): Promise<EsignResult> {
+  if (!(await isPrivileged())) return { ok: false, error: "Not authorized." };
   const res = await apiFetch(`/api/esignature-templates/${id}`, {
     method: "PUT",
     body: JSON.stringify(input),
@@ -70,6 +73,7 @@ export async function updateEsignatureTemplate(
 }
 
 export async function deleteEsignatureTemplate(id: number): Promise<EsignResult> {
+  if (!(await isPrivileged())) return { ok: false, error: "Not authorized." };
   const res = await apiFetch(`/api/esignature-templates/${id}`, { method: "DELETE" }).catch(() => null);
   if (!res) return { ok: false, error: "Network error." };
   if (!res.ok) return { ok: false, error: await readError(res, "Could not delete the template.") };

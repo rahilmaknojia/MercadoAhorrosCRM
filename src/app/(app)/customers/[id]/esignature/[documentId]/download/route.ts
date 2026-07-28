@@ -14,6 +14,11 @@ export async function GET(
   ctx: { params: Promise<{ id: string; documentId: string }> }
 ) {
   const { documentId } = await ctx.params;
+  // Numeric-only: this is interpolated into the upstream API URL. The API is responsible for
+  // authorizing that the document belongs to a customer the caller may access.
+  if (!/^\d+$/.test(documentId)) {
+    return NextResponse.json({ error: "Invalid document id" }, { status: 400 });
+  }
   const jwt = await getJwt(req.headers.get("cookie"));
   if (!jwt) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
