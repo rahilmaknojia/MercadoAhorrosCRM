@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { US_STATES, DEFAULT_STATE_CODE } from "@/lib/us-states";
 import type { CustomerVendorSelectionGroup } from "@/lib/types";
 
 const STEPS = ["Member", "Store", "Vendors", "Photos", "Signature"] as const;
@@ -33,7 +34,12 @@ export function MemberOnboardingWizard({
 }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<OnboardingMemberInput>({ contactName: "", status: "Pending" });
+  const [form, setForm] = useState<OnboardingMemberInput>({
+    contactName: "",
+    status: "Pending",
+    storeState: DEFAULT_STATE_CODE,
+  });
+  const [mailingSameAsStore, setMailingSameAsStore] = useState(true);
   const [created, setCreated] = useState<{ id: number; memberId: string | null } | null>(null);
   const [vendorGroups, setVendorGroups] = useState<CustomerVendorSelectionGroup[]>([]);
   const [signatureSaved, setSignatureSaved] = useState(false);
@@ -58,8 +64,18 @@ export function MemberOnboardingWizard({
         setStep(2);
         return;
       }
+      // Mailing mirrors the store address unless "same as store" was unticked.
+      const payload: OnboardingMemberInput = mailingSameAsStore
+        ? {
+            ...form,
+            mailingAddress: form.storeAddress,
+            mailingCity: form.storeCity,
+            mailingState: form.storeState,
+            mailingZipcode: form.storeZipcode,
+          }
+        : form;
       startTransition(async () => {
-        const res = await createOnboardingMember(form);
+        const res = await createOnboardingMember(payload);
         if (!res.ok) {
           toast.error(res.error);
           return;
@@ -115,7 +131,16 @@ export function MemberOnboardingWizard({
 
       <div className="min-h-[18rem]">
         {step === 0 && <MemberStep form={form} set={set} disabled={!!created} />}
-        {step === 1 && <StoreStep form={form} set={set} suggestions={suggestions} disabled={!!created} />}
+        {step === 1 && (
+          <StoreStep
+            form={form}
+            set={set}
+            suggestions={suggestions}
+            disabled={!!created}
+            mailingSame={mailingSameAsStore}
+            onMailingSameChange={setMailingSameAsStore}
+          />
+        )}
         {step === 2 &&
           (created ? (
             <OptionalSection
@@ -300,6 +325,39 @@ function SelectField({
   );
 }
 
+function StateSelect({
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value?: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  const known = !value || US_STATES.some((s) => s.code === value);
+  return (
+    <div className="space-y-1">
+      <Label>{label}</Label>
+      <select
+        className={selectClass}
+        value={value ?? ""}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">—</option>
+        {!known && value && <option value={value}>{value}</option>}
+        {US_STATES.map((s) => (
+          <option key={s.code} value={s.code}>
+            {s.name} ({s.code})
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function MemberStep({
   form,
   set,
@@ -328,27 +386,42 @@ function StoreStep({
   set,
   suggestions,
   disabled,
+  mailingSame,
+  onMailingSameChange,
 }: {
   form: OnboardingMemberInput;
   set: (p: Partial<OnboardingMemberInput>) => void;
   suggestions: Record<string, string[]>;
   disabled: boolean;
+  mailingSame: boolean;
+  onMailingSameChange: (v: boolean) => void;
 }) {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Street address" value={form.storeAddress} onChange={(v) => set({ storeAddress: v })} disabled={disabled} />
         <Field label="City" value={form.storeCity} onChange={(v) => set({ storeCity: v })} disabled={disabled} />
-        <Field label="State" value={form.storeState} onChange={(v) => set({ storeState: v })} disabled={disabled} />
+        <StateSelect label="State" value={form.storeState} onChange={(v) => set({ storeState: v })} disabled={disabled} />
         <Field label="ZIP code" value={form.storeZipcode} onChange={(v) => set({ storeZipcode: v })} disabled={disabled} />
       </div>
-      <p className="text-xs font-medium text-muted-foreground">Mailing address</p>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Mailing address" value={form.mailingAddress} onChange={(v) => set({ mailingAddress: v })} disabled={disabled} />
-        <Field label="Mailing city" value={form.mailingCity} onChange={(v) => set({ mailingCity: v })} disabled={disabled} />
-        <Field label="Mailing state" value={form.mailingState} onChange={(v) => set({ mailingState: v })} disabled={disabled} />
-        <Field label="Mailing ZIP" value={form.mailingZipcode} onChange={(v) => set({ mailingZipcode: v })} disabled={disabled} />
-      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="size-4"
+          checked={mailingSame}
+          disabled={disabled}
+          onChange={(e) => onMailingSameChange(e.target.checked)}
+        />
+        Mailing address same as store address
+      </label>
+      {!mailingSame && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Mailing address" value={form.mailingAddress} onChange={(v) => set({ mailingAddress: v })} disabled={disabled} />
+          <Field label="Mailing city" value={form.mailingCity} onChange={(v) => set({ mailingCity: v })} disabled={disabled} />
+          <StateSelect label="Mailing state" value={form.mailingState} onChange={(v) => set({ mailingState: v })} disabled={disabled} />
+          <Field label="Mailing ZIP" value={form.mailingZipcode} onChange={(v) => set({ mailingZipcode: v })} disabled={disabled} />
+        </div>
+      )}
       <p className="text-xs font-medium text-muted-foreground">Territory</p>
       <div className="grid gap-4 sm:grid-cols-2">
         <SelectField label="Region" value={form.region} options={suggestions.region ?? []} onChange={(v) => set({ region: v })} disabled={disabled} />
