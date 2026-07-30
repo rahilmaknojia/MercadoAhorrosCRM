@@ -16,7 +16,7 @@ import { SignaturePad } from "@/components/signature-pad";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
+import { cn, formatPhone, formatFederalTaxId, formatSalesTaxId, isValidEmail } from "@/lib/utils";
 import { US_STATES, DEFAULT_STATE_CODE } from "@/lib/us-states";
 import type { CustomerVendorSelectionGroup } from "@/lib/types";
 
@@ -53,6 +53,10 @@ export function MemberOnboardingWizard({
     if (step === 0) {
       if (!form.contactName.trim()) {
         toast.error("Contact name is required.");
+        return;
+      }
+      if (!isValidEmail(form.email)) {
+        toast.error("Enter a valid email address.");
         return;
       }
       setStep(1);
@@ -374,9 +378,9 @@ function MemberStep({
       <Field label="Business name" value={form.businessName} onChange={(v) => set({ businessName: v })} disabled={disabled} />
       <Field label="Corporate name" value={form.corpName} onChange={(v) => set({ corpName: v })} disabled={disabled} />
       <Field label="Email" type="email" value={form.email} onChange={(v) => set({ email: v })} disabled={disabled} />
-      <Field label="Store phone" value={form.storePhone} onChange={(v) => set({ storePhone: v })} disabled={disabled} />
-      <Field label="Cell phone" value={form.cellPhone} onChange={(v) => set({ cellPhone: v })} disabled={disabled} />
-      <Field label="Fax" value={form.storeFax} onChange={(v) => set({ storeFax: v })} disabled={disabled} />
+      <Field label="Store phone" value={form.storePhone} onChange={(v) => set({ storePhone: formatPhone(v) })} disabled={disabled} />
+      <Field label="Cell phone" value={form.cellPhone} onChange={(v) => set({ cellPhone: formatPhone(v) })} disabled={disabled} />
+      <Field label="Fax" value={form.storeFax} onChange={(v) => set({ storeFax: formatPhone(v) })} disabled={disabled} />
     </div>
   );
 }
@@ -432,8 +436,8 @@ function StoreStep({
       </div>
       <p className="text-xs font-medium text-muted-foreground">Identifiers &amp; status</p>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Sales tax ID" value={form.salesTaxId} onChange={(v) => set({ salesTaxId: v })} disabled={disabled} />
-        <Field label="Federal tax ID" value={form.federalTaxId} onChange={(v) => set({ federalTaxId: v })} disabled={disabled} />
+        <Field label="Sales tax ID" value={form.salesTaxId} onChange={(v) => set({ salesTaxId: formatSalesTaxId(v) })} disabled={disabled} />
+        <Field label="Federal tax ID" value={form.federalTaxId} onChange={(v) => set({ federalTaxId: formatFederalTaxId(v) })} disabled={disabled} />
         <div className="space-y-1">
           <Label>Status</Label>
           <select

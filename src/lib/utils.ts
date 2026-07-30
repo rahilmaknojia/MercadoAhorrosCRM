@@ -30,3 +30,24 @@ export function formatPhone(value?: string | null): string {
   if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`
   return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`
 }
+
+/** Federal tax id (EIN) as `##-#######` (9 digits). */
+export function formatFederalTaxId(value?: string | null): string {
+  if (!value) return ""
+  const digits = value.replace(/\D/g, "").slice(0, 9)
+  if (digits.length <= 2) return digits
+  return `${digits.slice(0, 2)}-${digits.slice(2)}`
+}
+
+/** Sales tax id: digits grouped in fours (`1234-5678-9012-345`), up to 15 digits. */
+export function formatSalesTaxId(value?: string | null): string {
+  if (!value) return ""
+  const digits = value.replace(/\D/g, "").slice(0, 15)
+  return digits.replace(/(.{4})(?=.)/g, "$1-")
+}
+
+/** Valid email, or empty (the field is optional). */
+export function isValidEmail(value?: string | null): boolean {
+  const trimmed = (value ?? "").trim()
+  return trimmed.length === 0 || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(trimmed)
+}
