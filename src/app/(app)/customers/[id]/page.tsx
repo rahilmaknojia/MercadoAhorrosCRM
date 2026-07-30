@@ -24,6 +24,7 @@ import { CustomerActivity } from "@/components/customer-activity";
 import { CustomerCoolers } from "@/components/customer-coolers";
 import { CustomerVendors } from "@/components/customer-vendors";
 import { CustomerESignature } from "@/components/customer-esignature";
+import { CustomerSignatureCard } from "@/components/customer-signature-card";
 import { MemberTabs } from "@/components/member-tabs";
 import { BreadcrumbLabel } from "@/components/breadcrumb-context";
 import { CopyButton, CopyField } from "@/components/copy-field";
@@ -220,17 +221,19 @@ export default async function CustomerDetailPage({
   let metaJson: string | null = null;
   let photoCaptions: Record<string, string> = {};
   let coolerDoc: CoolerDocument = {};
+  let customerSignature: string | null = null;
   if (metadata[0]?.jsonData) {
     try {
       const parsed = JSON.parse(metadata[0].jsonData) as Record<string, unknown>;
       photoCaptions = (parsed.__photoCaptions as Record<string, string>) ?? {};
+      customerSignature = (parsed.__customerSignature as string) ?? null;
       coolerDoc = {
         coolers: parsed.coolers as CoolerDocument["coolers"],
         shared_coolers: parsed.shared_coolers as CoolerDocument["shared_coolers"],
         cold_vaults: parsed.cold_vaults as CoolerDocument["cold_vaults"],
       };
       const rest: Record<string, unknown> = { ...parsed };
-      for (const key of ["__photoCaptions", "coolers", "shared_coolers", "cold_vaults"]) {
+      for (const key of ["__photoCaptions", "__customerSignature", "coolers", "shared_coolers", "cold_vaults"]) {
         delete rest[key];
       }
       metaJson = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : null;
@@ -461,13 +464,19 @@ export default async function CustomerDetailPage({
             label: "eSignature",
             count: esignDocuments.length || undefined,
             content: (
-              <CustomerESignature
-                customerId={customer.id}
-                templates={esignTemplates}
-                documents={esignDocuments}
-                currentUser={currentUser}
-                orgUsers={orgUsers}
-              />
+              <div className="space-y-4">
+                <CustomerSignatureCard
+                  customerId={customer.id}
+                  initialSignature={customerSignature}
+                />
+                <CustomerESignature
+                  customerId={customer.id}
+                  templates={esignTemplates}
+                  documents={esignDocuments}
+                  currentUser={currentUser}
+                  orgUsers={orgUsers}
+                />
+              </div>
             ),
           },
           {

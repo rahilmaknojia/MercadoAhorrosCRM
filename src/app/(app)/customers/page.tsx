@@ -173,11 +173,18 @@ export default async function CustomersPage({
             {page ? `${page.TotalCount.toLocaleString()} member store${page.TotalCount === 1 ? "" : "s"}` : "Member stores"}
           </p>
         </div>
-        <Can permission="customers:create">
-          <Link href="/customers/new" className={buttonVariants()}>
-            <Plus /> New customer
-          </Link>
-        </Can>
+        <div className="flex items-center gap-2">
+          <Can permission="customers:approve">
+            <Link href="/customers/approvals" className={buttonVariants({ variant: "outline" })}>
+              Approvals
+            </Link>
+          </Can>
+          <Can permission="customers:create">
+            <Link href="/customers/new" className={buttonVariants()}>
+              <Plus /> New customer
+            </Link>
+          </Can>
+        </div>
       </div>
 
       <div className="space-y-3 rounded-xl border bg-card p-3 shadow-xs">
