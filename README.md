@@ -24,6 +24,8 @@ to the backend, so the API JWT never reaches the browser:
 - **Invitation-only.** This UI offers no open sign-up. Enforcing it (rejecting un-invited
   Microsoft sign-ins, disabling public email sign-up) is an **auth-service** change. Staff
   use Microsoft; the Owner is a local account.
+- **Adding a user** (invite → sign-in → role → territory) is documented end-to-end in the
+  workspace runbook `docs/09-user-access-runbook.md`.
 
 ## Run (dev)
 

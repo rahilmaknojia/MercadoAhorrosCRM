@@ -68,7 +68,7 @@ PROD
 # Variables (edit these)
 $Registry = "registry.digitalocean.com/edi"
 $Image    = "mercado-crm"
-$Version  = "1.0.3"          # or: (Get-Date -Format "yyyy.MM.dd.HHmm")
+$Version  = "1.0.2"          # or: (Get-Date -Format "yyyy.MM.dd.HHmm")
 $Tag      =  $Registry + "/" + $Image + ":prod-" + $Version
 
 # Build with BuildKit enabled
