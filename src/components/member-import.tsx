@@ -55,6 +55,11 @@ const ACTION_VARIANT: Record<RowPreview["action"], "default" | "secondary" | "ou
   Blocked: "destructive",
 };
 
+/** Rows per apply request. Matches the API's default; the API clamps anything larger. */
+const BATCH_SIZE = 25;
+
+type Progress = { done: number; total: number; created: number; updated: number };
+
 export function MemberImport() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -63,11 +68,13 @@ export function MemberImport() {
   const [applied, setApplied] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [showOnlyChanges, setShowOnlyChanges] = useState(true);
+  const [progress, setProgress] = useState<Progress | null>(null);
 
   function reset(next: File | null) {
     setFile(next);
     setPreview(null);
     setApplied(false);
+    setProgress(null);
   }
 
   function pick(files: FileList | null) {
@@ -114,34 +121,58 @@ export function MemberImport() {
 
   async function runApply() {
     if (!file || !preview) return;
+
     setBusy(true);
+    setProgress({ done: 0, total: preview.summary.total, created: 0, updated: 0 });
 
     try {
-      const query =
+      const csv = await file.text();
+      const base =
         `?fileSha256=${encodeURIComponent(preview.fileSha256)}` +
         `&planFingerprint=${encodeURIComponent(preview.planFingerprint)}`;
 
-      const res = await post("apply", await file.text(), query);
-      const payload = await res.json();
+      let offset = 0;
+      let created = 0;
+      let updated = 0;
 
-      if (res.status === 409) {
-        // The data moved between preview and confirm, so the API refused and returned a fresh
-        // plan. Show that instead of applying something that was never reviewed.
-        setPreview(payload.preview as ImportPreview);
-        toast.error(payload.message ?? "The data changed since the preview. Review it again.");
-        return;
+      // Driven a batch at a time rather than in one long request. Each batch commits on its own,
+      // so no single call runs long enough for an ingress proxy to time out mid-flight - which is
+      // what made a staging run look like a failure even though the data had landed.
+      for (;;) {
+        const res = await post("apply", csv, `${base}&offset=${offset}&limit=${BATCH_SIZE}`);
+        const payload = await res.json();
+
+        if (res.status === 409) {
+          // The data moved since the preview, so the API refused. Show the refreshed plan rather
+          // than applying something that was never reviewed.
+          if (payload.preview) setPreview(payload.preview as ImportPreview);
+          toast.error(payload.message ?? "The data changed since the preview. Review it again.");
+          return;
+        }
+
+        if (!res.ok) {
+          // Earlier batches are already committed. Re-running is safe and picks up where this
+          // stopped, because the import re-plans and skips rows that already match.
+          toast.error(
+            `${payload?.title ?? payload?.error ?? `Import failed (${res.status})`} — ` +
+              `${offset} of ${preview.summary.total} rows were applied. Re-run to continue.`,
+          );
+          return;
+        }
+
+        created += payload.created ?? 0;
+        updated += payload.updated ?? 0;
+        offset = payload.nextOffset ?? offset + (payload.processed ?? 0);
+
+        setProgress({ done: offset, total: payload.totalRows ?? preview.summary.total, created, updated });
+
+        if (!payload.hasMore) break;
       }
 
-      if (!res.ok) {
-        toast.error(payload?.title ?? payload?.error ?? `Import failed (${res.status}).`);
-        return;
-      }
-
-      setPreview(payload as ImportPreview);
       setApplied(true);
-      toast.success("Import applied.");
+      toast.success(`Import applied — ${created} created, ${updated} updated.`);
     } catch {
-      toast.error("The import could not be completed.");
+      toast.error("The import could not be completed. Re-run to continue where it stopped.");
     } finally {
       setBusy(false);
     }
@@ -254,6 +285,44 @@ export function MemberImport() {
                   {finding.message}
                 </div>
               ))}
+
+              {progress && (
+                // Real progress, not a spinner: the client drives the run a batch at a time, so
+                // it knows exactly how many rows are done.
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium">
+                      {applied ? "Applied" : "Applying…"} {progress.done} of {progress.total} rows
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {progress.created} created · {progress.updated} updated
+                    </span>
+                  </div>
+                  <div
+                    className="h-2 w-full overflow-hidden rounded-full bg-muted"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={progress.total}
+                    aria-valuenow={progress.done}
+                  >
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-[width] duration-300",
+                        applied ? "bg-emerald-500" : "bg-brand",
+                      )}
+                      style={{
+                        width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%`,
+                      }}
+                    />
+                  </div>
+                  {busy && (
+                    <p className="text-xs text-muted-foreground">
+                      Each batch is saved as it completes. If this is interrupted, re-run the
+                      import and it will continue from where it stopped.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {!applied && (
                 <div className="flex items-center gap-3">
