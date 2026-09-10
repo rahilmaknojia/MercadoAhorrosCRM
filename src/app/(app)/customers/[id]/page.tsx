@@ -114,23 +114,28 @@ async function fetchArray<T>(path: string): Promise<T[]> {
 }
 
 /**
- * The adjacent member in record order (by Id, which matches the list's memberId ordering) so the
- * detail page can offer prev/next. The entity filter has no `>`/`<`, so we bracket with `between`
- * and take the single nearest row; state scoping is applied by the endpoint, so neighbours stay
- * within what the viewer may see. Returns null at the ends of the list.
+ * The members either side of this one, for prev/next.
+ *
+ * Ordered by memberId — the same order the customer list uses — by a dedicated endpoint. This used
+ * to bracket on the numeric Id with `between`, on the assumption that Id order matched member
+ * order. That holds only while members are created one at a time in ascending order: a bulk import
+ * inserts in file order, and the legacy export is sorted descending by member id, so the two ended
+ * up exact opposites and prev/next appeared swapped. Ordering by memberId cannot drift that way.
+ *
+ * State scoping is applied by the endpoint, so neighbours stay within what the viewer may see.
+ * Both are null at the ends of the list.
  */
-async function fetchNeighbor(id: number, direction: "prev" | "next"): Promise<Customer | null> {
-  const filter =
-    direction === "next" ? `id|between|${id + 1}|2147483647` : `id|between|0|${id - 1}`;
-  const params = new URLSearchParams({
-    pageNumber: "1",
-    pageSize: "1",
-    sortField: "id",
-    ascending: direction === "next" ? "true" : "false",
-  });
-  params.append("filters", filter);
-  const rows = await fetchArray<Customer>(`/api/customers?${params.toString()}`);
-  return rows[0] ?? null;
+async function fetchNeighbors(
+  id: number,
+): Promise<{ previous: Customer | null; next: Customer | null }> {
+  try {
+    const res = await apiFetch(`/api/customers/${id}/neighbors`);
+    if (!res.ok) return { previous: null, next: null };
+    const body = (await res.json()) as { previous: Customer | null; next: Customer | null };
+    return { previous: body.previous ?? null, next: body.next ?? null };
+  } catch {
+    return { previous: null, next: null };
+  }
 }
 
 export default async function CustomerDetailPage({
@@ -197,8 +202,7 @@ export default async function CustomerDetailPage({
     sharedCoolers,
     esignTemplates,
     esignDocuments,
-    prevMember,
-    nextMember,
+    neighbors,
   ] = await Promise.all([
     fetchArray<StoreMetadata>(`/api/storemetadata?filters=customerId|exact|${id}&pageSize=1`),
     fetchArray<CustomerVendorSelectionGroup>(`/api/customers/${id}/vendors`),
@@ -207,12 +211,13 @@ export default async function CustomerDetailPage({
     fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=sharedCooler`),
     fetchArray<EsignatureTemplate>(`/api/esignature-templates/active`),
     fetchArray<EsignatureDocument>(`/api/customers/${id}/esignature-documents`),
-    fetchNeighbor(customer.id, "prev"),
-    fetchNeighbor(customer.id, "next"),
+    fetchNeighbors(customer.id),
   ]);
 
   // Carry the active tab onto the prev/next links so stepping through members keeps you on the
   // same tab. Built once here; the ends of the list render as disabled controls.
+  const prevMember = neighbors.previous;
+  const nextMember = neighbors.next;
   const neighborHref = (nid: number) => `/customers/${nid}${tab ? `?tab=${tab}` : ""}`;
 
   // The document holds several recognized sections plus a long tail of free-form equipment keys.
