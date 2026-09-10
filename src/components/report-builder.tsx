@@ -25,6 +25,7 @@ import { ReportView } from "@/components/report-view";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useCan } from "@/components/permissions-provider";
 import { Download, Loader2, Play, Plus, Save, X } from "lucide-react";
 
 const VISUALIZATIONS: { value: ReportVisualization; label: string }[] = [
@@ -66,6 +67,10 @@ export function ReportBuilder({
   mode?: "report" | "query";
 }) {
   const isQuery = mode === "query";
+  // In query mode the preset fields stay hidden until the user chooses to keep the query.
+  const [keeping, setKeeping] = useState(false);
+  const canCreate = useCan("reports:create");
+  const showPresetFields = !isQuery || keeping;
   const router = useRouter();
   const def = initial?.definition;
 
@@ -277,8 +282,9 @@ export function ReportBuilder({
       <CoolerMetadataPathOptions />
       {/* Config */}
       <div className="space-y-5">
-        {/* Name and description belong to a saved preset; an ad-hoc query has neither. */}
-        {!isQuery && (
+        {/* Name and description belong to a saved preset. In query mode they appear only once the
+            user has chosen to keep the query as a report. */}
+        {showPresetFields && (
           <>
             <div className="space-y-1">
               <Label htmlFor="name">Report name</Label>
@@ -600,10 +606,30 @@ export function ReportBuilder({
             <Play /> Run preview
           </Button>
           {isQuery ? (
-            <Button type="button" onClick={onExport} disabled={exporting}>
-              {exporting ? <Loader2 className="animate-spin" /> : <Download />}
-              Export CSV
-            </Button>
+            <>
+              <Button type="button" onClick={onExport} disabled={exporting}>
+                {exporting ? <Loader2 className="animate-spin" /> : <Download />}
+                Export CSV
+              </Button>
+              {/* Keeping a query is optional and secondary: the point of this page is the
+                  one-off answer. Gated on reports:create because that is what saving needs. */}
+              {canCreate &&
+                (keeping ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={onSave}
+                    disabled={saving || !name.trim()}
+                  >
+                    {saving ? <Loader2 className="animate-spin" /> : <Save />}
+                    Save report
+                  </Button>
+                ) : (
+                  <Button type="button" variant="outline" onClick={() => setKeeping(true)}>
+                    <Save /> Save as report…
+                  </Button>
+                ))}
+            </>
           ) : (
             <Button type="button" onClick={onSave} disabled={saving || !name.trim()}>
               {saving ? <Loader2 className="animate-spin" /> : <Save />}

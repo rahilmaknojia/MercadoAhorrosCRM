@@ -10,11 +10,8 @@ export default function ReportQueryPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Query</h1>
           <p className="text-sm text-muted-foreground">
-            Build a one-off query, run it, and export the result. Nothing is saved — use{" "}
-            <Link href="/reports/new" className="underline underline-offset-4">
-              New report
-            </Link>{" "}
-            if you want to keep it.
+            Build a one-off query, run it, and export the result. Nothing is saved unless you choose
+            to keep it.
           </p>
         </div>
         <Link href="/reports" className={buttonVariants({ variant: "ghost", size: "sm" })}>
