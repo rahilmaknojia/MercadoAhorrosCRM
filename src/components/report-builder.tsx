@@ -25,7 +25,7 @@ import { ReportView } from "@/components/report-view";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Play, Plus, Save, X } from "lucide-react";
+import { Download, Loader2, Play, Plus, Save, X } from "lucide-react";
 
 const VISUALIZATIONS: { value: ReportVisualization; label: string }[] = [
   { value: "table", label: "Table" },
@@ -55,9 +55,17 @@ function CoolerMetadataPathOptions() {
 
 export function ReportBuilder({
   initial,
+  mode = "report",
 }: {
-  initial?: { id: number; name: string; description?: string | null; definition: ReportDefinition };
+  // `id` is optional so a definition can seed the builder without inventing a preset.
+  initial?: { id?: number; name?: string; description?: string | null; definition: ReportDefinition };
+  /**
+   * "report" builds a saved preset (name + Save). "query" is the ad-hoc mode: same builder, same
+   * preview, but the result is exported directly instead of being saved.
+   */
+  mode?: "report" | "query";
 }) {
+  const isQuery = mode === "query";
   const router = useRouter();
   const def = initial?.definition;
 
@@ -108,6 +116,7 @@ export function ReportBuilder({
 
   const [preview, setPreview] = useState<ReportDefinition | null>(def ?? null);
   const [saving, startSaving] = useTransition();
+  const [exporting, startExporting] = useTransition();
 
   // Load the grouped vendor catalogue when the vendor source is selected.
   //
@@ -198,6 +207,54 @@ export function ReportBuilder({
     };
   }
 
+
+  /**
+   * Ad-hoc export: POST the current definition and download what comes back. The saved-report
+   * button is a plain link to `[id]/export`; an unsaved query has no id, so it round-trips the
+   * definition instead.
+   */
+  function onExport() {
+    startExporting(async () => {
+      const definition = buildDefinition();
+
+      try {
+        const res = await fetch("/api/reports/export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(definition),
+        });
+
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          toast.error(body?.error ?? `Export failed (${res.status}).`);
+          return;
+        }
+
+        const truncatedAt = res.headers.get("X-Export-Truncated");
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+
+        try {
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `query-${new Date().toISOString().slice(0, 10)}.csv`;
+          a.click();
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+
+        if (truncatedAt) {
+          // Say so rather than hand over a silently short file.
+          toast.warning(`Exported the first ${truncatedAt} rows. Narrow the filters to get the rest.`);
+        } else {
+          toast.success("Export downloaded.");
+        }
+      } catch {
+        toast.error("Export failed.");
+      }
+    });
+  }
+
   function onSave() {
     startSaving(async () => {
       const res = await saveReport({
@@ -220,19 +277,24 @@ export function ReportBuilder({
       <CoolerMetadataPathOptions />
       {/* Config */}
       <div className="space-y-5">
-        <div className="space-y-1">
-          <Label htmlFor="name">Report name</Label>
-          <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Active stores by state" />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="description">Description</Label>
-          <Input
-            id="description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Optional"
-          />
-        </div>
+        {/* Name and description belong to a saved preset; an ad-hoc query has neither. */}
+        {!isQuery && (
+          <>
+            <div className="space-y-1">
+              <Label htmlFor="name">Report name</Label>
+              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Active stores by state" />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="description">Description</Label>
+              <Input
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+          </>
+        )}
 
         <div className="space-y-1">
           <Label htmlFor="source">Data source</Label>
@@ -537,10 +599,17 @@ export function ReportBuilder({
           <Button type="button" variant="outline" onClick={() => setPreview(buildDefinition())}>
             <Play /> Run preview
           </Button>
-          <Button type="button" onClick={onSave} disabled={saving || !name.trim()}>
-            {saving ? <Loader2 className="animate-spin" /> : <Save />}
-            Save report
-          </Button>
+          {isQuery ? (
+            <Button type="button" onClick={onExport} disabled={exporting}>
+              {exporting ? <Loader2 className="animate-spin" /> : <Download />}
+              Export CSV
+            </Button>
+          ) : (
+            <Button type="button" onClick={onSave} disabled={saving || !name.trim()}>
+              {saving ? <Loader2 className="animate-spin" /> : <Save />}
+              Save report
+            </Button>
+          )}
         </div>
       </div>
 

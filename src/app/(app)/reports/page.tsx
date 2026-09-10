@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Can } from "@/components/permissions-provider";
-import { BarChart3, Pin, Plus } from "lucide-react";
+import { BarChart3, Pin, Plus, Search } from "lucide-react";
 
 export default async function ReportsPage() {
   let presets: ReportPreset[] = [];
@@ -33,11 +33,20 @@ export default async function ReportsPage() {
             Build, save, and pin reports with dynamic filters and charts.
           </p>
         </div>
-        <Can permission="reports:create">
-          <Link href="/reports/new" className={buttonVariants()}>
-            <Plus /> New report
-          </Link>
-        </Can>
+        <div className="flex items-center gap-2">
+          {/* Ad-hoc: run and export without saving. Gated on reports:export, not create,
+              because exporting is what it actually does. */}
+          <Can permission="reports:export">
+            <Link href="/reports/query" className={buttonVariants({ variant: "outline" })}>
+              <Search /> Query
+            </Link>
+          </Can>
+          <Can permission="reports:create">
+            <Link href="/reports/new" className={buttonVariants()}>
+              <Plus /> New report
+            </Link>
+          </Can>
+        </div>
       </div>
 
       {error ? (
