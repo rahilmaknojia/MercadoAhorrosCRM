@@ -18,16 +18,17 @@ import { SignaturePad } from "@/components/signature-pad";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EsignatureSendDialog } from "@/components/esignature-send-dialog";
 import { cn } from "@/lib/utils";
 import { tagBadgeClass } from "@/lib/esign";
+import { parseTemplateMapping, snapshotChipLabel } from "@/lib/esign-survey";
 import type {
   EsignatureDocument,
   EsignatureDocumentRecipient,
   EsignatureManualRecipient,
   EsignatureTemplate,
-  EsignatureTemplateMapping,
 } from "@/lib/types";
-import { Download, Eye, Loader2, PenLine, RefreshCw, Send, Trash2, X } from "lucide-react";
+import { ClipboardCheck, Download, Eye, Loader2, PenLine, RefreshCw, Send, Trash2, X } from "lucide-react";
 
 // The active in-person session: the signing url (a short-lived credential, kept only in memory)
 // plus which document it belongs to, so we can re-sync that document's status when it closes.
@@ -35,12 +36,7 @@ type ActiveSession = { url: string; documentId: number };
 type Signer = { name: string; email: string };
 
 function mappingRoles(t: EsignatureTemplate) {
-  try {
-    const m = JSON.parse(t.mappingJson) as EsignatureTemplateMapping;
-    return m.roles ?? [];
-  } catch {
-    return [];
-  }
+  return parseTemplateMapping(t.mappingJson).roles;
 }
 
 function manualRoles(t: EsignatureTemplate) {
@@ -424,9 +420,11 @@ function TemplateSender({
   onSignatureChange: (dataUrl: string) => void;
 }) {
   const roles = manualRoles(template);
+  const hasMergeTokens = parseTemplateMapping(template.mappingJson).mergeTokens.length > 0;
   const canCaptureSignature = useCan("customer_data:update");
-  // In-person check step: confirm (or capture) the customer's signature before launching.
-  const [preflight, setPreflight] = useState(false);
+  // The confirm step (merge preview + compliance review pin; for in-person also the check that
+  // confirms or captures the customer's signature before launching).
+  const [dialog, setDialog] = useState<"send" | "inPerson" | null>(null);
   const [useSignatureOnFile, setUseSignatureOnFile] = useState(true);
   const [savingSignature, setSavingSignature] = useState(false);
 
@@ -495,8 +493,23 @@ function TemplateSender({
 
   function send() {
     if (missingManual()) return;
+    // Nothing to preview without merge fields — send straight away, as before.
+    if (!hasMergeTokens) {
+      doSend(null);
+      return;
+    }
+    setDialog("send");
+  }
+
+  function doSend(complianceReviewVersion: number | null) {
     startTransition(async () => {
-      const res = await sendEsignatureDocument(customerId, template.id, Object.values(recipients), sendNow);
+      const res = await sendEsignatureDocument(
+        customerId,
+        template.id,
+        Object.values(recipients),
+        sendNow,
+        complianceReviewVersion
+      );
       if (!res.ok) {
         toast.error(res.error);
         return;
@@ -504,34 +517,43 @@ function TemplateSender({
       toast.success(sendNow ? "Document sent for signature." : "Draft created.");
       setRecipients({});
       setSendNow(false);
+      setDialog(null);
     });
   }
 
   function signInPerson() {
     if (missingManual()) return;
-    // Templates with no customer role have nothing to pre-fill — launch straight away.
-    if (!hasCustomerRole(template)) {
-      startSigning(false);
+    // No customer role (nothing to pre-fill) and no merge fields (nothing to preview) — launch now.
+    if (!hasCustomerRole(template) && !hasMergeTokens) {
+      startSigning(false, null);
       return;
     }
     setUseSignatureOnFile(true);
-    setPreflight(true);
+    setDialog("inPerson");
   }
 
   // Launch the in-person session. With `prefill`, the API supplies the signature on file to
   // NinjaFlow (the customer still reviews and submits); without it they draw it in the document.
-  function startSigning(prefill: boolean) {
+  function startSigning(prefill: boolean, complianceReviewVersion: number | null) {
     startTransition(async () => {
-      const res = await startInPersonFromTemplate(customerId, template.id, Object.values(recipients), prefill);
+      const res = await startInPersonFromTemplate(
+        customerId,
+        template.id,
+        Object.values(recipients),
+        prefill,
+        complianceReviewVersion
+      );
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
       setRecipients({});
-      setPreflight(false);
+      setDialog(null);
       onSession({ url: res.data.session.url, documentId: res.data.documentId });
     });
   }
+
+  const prefillSignature = hasCustomerRole(template) && !!signature && useSignatureOnFile;
 
   async function captureSignature(dataUrl: string) {
     setSavingSignature(true);
@@ -559,13 +581,13 @@ function TemplateSender({
             variant="outline"
             size="sm"
             onClick={signInPerson}
-            disabled={pending || preflight}
+            disabled={pending || dialog !== null}
             className="gap-1.5"
           >
             <PenLine className="h-3.5 w-3.5" />
             Sign in person
           </Button>
-          <Button size="sm" onClick={send} disabled={pending || preflight} className="gap-1.5">
+          <Button size="sm" onClick={send} disabled={pending || dialog !== null} className="gap-1.5">
             {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
             Send
           </Button>
@@ -608,61 +630,79 @@ function TemplateSender({
           ))}
         </div>
       )}
-      {preflight && (
-        <div className="space-y-3 rounded-md border bg-muted/30 p-3">
-          <div className="flex items-center justify-between gap-2">
+      <EsignatureSendDialog
+        open={dialog === "send"}
+        onOpenChange={(open) => !open && setDialog(null)}
+        customerId={customerId}
+        template={template}
+        title={`${sendNow ? "Send" : "Create draft of"} ${template.name}`}
+        description={
+          sendNow
+            ? "Review what will be filled in, then email the signers."
+            : "Review what will be filled in. A draft is created; no emails are sent yet."
+        }
+        confirmLabel={sendNow ? "Send" : "Create draft"}
+        confirmIcon={<Send className="size-3.5" />}
+        pending={pending}
+        onConfirm={doSend}
+        onCancel={() => setDialog(null)}
+      />
+      <EsignatureSendDialog
+        open={dialog === "inPerson"}
+        onOpenChange={(open) => !open && setDialog(null)}
+        customerId={customerId}
+        template={template}
+        title={`Sign ${template.name} in person`}
+        description="Review what will be filled in, then hand the device to the signer."
+        confirmLabel={
+          !hasCustomerRole(template) || prefillSignature ? "Start signing" : "Continue — customer signs in document"
+        }
+        confirmIcon={<PenLine className="size-3.5" />}
+        pending={pending}
+        confirmDisabled={savingSignature}
+        onConfirm={(version) => startSigning(prefillSignature, version)}
+        onCancel={() => setDialog(null)}
+      >
+        {hasCustomerRole(template) && (
+          <div className="space-y-3 rounded-md border bg-muted/30 p-3">
             <span className="text-sm font-medium">Customer signature</span>
-            <Button size="sm" variant="ghost" onClick={() => setPreflight(false)} disabled={pending}>
-              <X /> Cancel
-            </Button>
-          </div>
-          {signature ? (
-            <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={signature}
-                alt="Customer signature on file"
-                className="h-16 w-auto rounded-md border bg-white p-1"
-              />
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={useSignatureOnFile}
-                  onChange={(e) => setUseSignatureOnFile(e.target.checked)}
+            {signature ? (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={signature}
+                  alt="Customer signature on file"
+                  className="h-16 w-auto rounded-md border bg-white p-1"
                 />
-                <span>
-                  Pre-fill the document with this signature. The customer still reviews and
-                  submits, and can redraw it.
-                </span>
-              </label>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-muted-foreground">
-                No signature on file.{" "}
-                {canCaptureSignature
-                  ? "Capture it now to pre-fill the document, or continue and the customer signs in the document."
-                  : "The customer will sign in the document."}
-              </p>
-              {canCaptureSignature && (
-                <SignaturePad onSave={captureSignature} saving={savingSignature} />
-              )}
-            </>
-          )}
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              onClick={() => startSigning(!!signature && useSignatureOnFile)}
-              disabled={pending || savingSignature}
-              className="gap-1.5"
-            >
-              {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PenLine className="h-3.5 w-3.5" />}
-              {signature && useSignatureOnFile ? "Start signing" : "Continue — customer signs in document"}
-            </Button>
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={useSignatureOnFile}
+                    onChange={(e) => setUseSignatureOnFile(e.target.checked)}
+                  />
+                  <span>
+                    Pre-fill the document with this signature. The customer still reviews and
+                    submits, and can redraw it.
+                  </span>
+                </label>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  No signature on file.{" "}
+                  {canCaptureSignature
+                    ? "Capture it now to pre-fill the document, or continue and the customer signs in the document."
+                    : "The customer will sign in the document."}
+                </p>
+                {canCaptureSignature && (
+                  <SignaturePad onSave={captureSignature} saving={savingSignature} />
+                )}
+              </>
+            )}
           </div>
-        </div>
-      )}
+        )}
+      </EsignatureSendDialog>
     </div>
   );
 }
@@ -686,6 +726,10 @@ function DocumentRow({
   const signable = canSign && isSignable(document.status);
   const completed = isCompleted(document);
   const progress = signProgress(document.recipientsJson);
+  // Older API builds may expose the raw column (sourceSnapshotJson) instead of the parsed object.
+  const snapshotChip = snapshotChipLabel(
+    document.sourceSnapshot ?? (document as { sourceSnapshotJson?: string | null }).sourceSnapshotJson
+  );
   const basePath = `/customers/${customerId}/esignature/${document.id}/download`;
 
   function downloadPdf() {
@@ -732,7 +776,7 @@ function DocumentRow({
       <div className="flex items-center gap-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">{document.name}</div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             {/* toLocaleString() renders in the server's timezone/locale during SSR and the
                 browser's on hydration, so the two disagree — React #418. Suppress the mismatch
                 on this node and let the client (local-time) value win. */}
@@ -746,6 +790,15 @@ function DocumentRow({
             {progress && (
               <span className="rounded bg-muted px-1.5 py-0.5 font-medium">
                 {progress.signed}/{progress.total} signed
+              </span>
+            )}
+            {snapshotChip && (
+              <span
+                className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 font-medium"
+                title="The compliance review this document was filled from"
+              >
+                <ClipboardCheck className="size-3" />
+                {snapshotChip}
               </span>
             )}
           </div>

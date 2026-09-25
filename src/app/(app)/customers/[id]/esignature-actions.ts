@@ -24,11 +24,18 @@ export async function sendEsignatureDocument(
   customerId: number,
   templateId: number,
   recipients: EsignatureManualRecipient[],
-  sendImmediately: boolean
+  sendImmediately: boolean,
+  /** Pin the compliance review the document uses; omit to use the template's default selection. */
+  complianceReviewVersion?: number | null
 ): Promise<ActionResult> {
   const res = await apiFetch(`/api/customers/${customerId}/esignature-documents`, {
     method: "POST",
-    body: JSON.stringify({ templateId, recipients, sendImmediately }),
+    body: JSON.stringify({
+      templateId,
+      recipients,
+      sendImmediately,
+      ...(complianceReviewVersion ? { complianceReviewVersion } : {}),
+    }),
   }).catch(() => null);
   if (!res) return { ok: false, error: "Could not reach the API." };
   if (!res.ok) return { ok: false, error: await readError(res, "Could not create the document.") };
@@ -79,11 +86,18 @@ export async function startInPersonFromTemplate(
   templateId: number,
   recipients: EsignatureManualRecipient[],
   useSignatureOnFile: boolean,
+  complianceReviewVersion?: number | null,
   returnUrl?: string
 ): Promise<LaunchResult> {
   const res = await apiFetch(`/api/customers/${customerId}/esignature-documents/in-person`, {
     method: "POST",
-    body: JSON.stringify({ templateId, recipients, useSignatureOnFile, returnUrl: returnUrl ?? null }),
+    body: JSON.stringify({
+      templateId,
+      recipients,
+      useSignatureOnFile,
+      returnUrl: returnUrl ?? null,
+      ...(complianceReviewVersion ? { complianceReviewVersion } : {}),
+    }),
   }).catch(() => null);
   if (!res) return { ok: false, error: "Could not reach the API." };
   if (!res.ok) return { ok: false, error: await readError(res, "Could not start signing.") };

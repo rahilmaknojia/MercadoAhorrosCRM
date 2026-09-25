@@ -277,7 +277,10 @@ export type PageInfo = {
 // ---------------------------------------------------------------- eSignature
 
 export type EsignatureRoleSource = "customer" | "preset" | "manual";
-export type EsignatureTokenSource = "customer" | "vendor" | "storeMetadata" | "literal";
+export type EsignatureTokenSource = "customer" | "vendor" | "storeMetadata" | "literal" | "siteSurvey";
+
+/** Which compliance review a `siteSurvey` compliance token reads (default `latest_submitted`). */
+export type EsignatureReviewSelection = "latest_submitted" | "latest";
 
 export type EsignatureRoleMapping = {
   roleKey: string;
@@ -291,11 +294,67 @@ export type EsignatureRoleMapping = {
 export type EsignatureMergeTokenMapping = {
   token: string;
   source: EsignatureTokenSource;
-  field?: string; // customer
+  field?: string; // customer field name | siteSurvey catalog key
   vendorCode?: string; // vendor
   property?: string; // vendor: accountNumber | json key
   path?: string; // storeMetadata dotted path
   value?: string; // literal
+  format?: string; // siteSurvey flag/answer fields: a SurveyFieldFormat key (omitted = field default)
+  reviewSelection?: EsignatureReviewSelection; // siteSurvey compliance fields only (omitted = latest_submitted)
+};
+
+// --- Site Survey merge-token catalog (GET /api/esignature/survey-fields) ---
+
+export type SurveyFieldKind = "flag" | "answer" | "count" | "text" | "list" | "date";
+
+export type SurveyField = {
+  key: string; // e.g. "coke.twelve_pack_display", "compliance.display_space.gondola.coke"
+  label: string;
+  kind: SurveyFieldKind;
+  formats: string[] | null; // allowed format keys (flag/answer kinds only)
+  defaultFormat: string | null;
+  supportsReviewSelection: boolean; // compliance fields
+  section?: string | null; // picker sub-heading within the group (e.g. "Cold Vault Integrity")
+};
+
+export type SurveyFieldGroup = { key: string; label: string; fields: SurveyField[] };
+
+/** A render format for flag/answer fields, e.g. { key: "x", label: "X / blank", yes: "X", no: "" }. */
+export type SurveyFieldFormat = { key: string; label: string; yes: string; no: string };
+
+export type SurveyFieldCatalog = { groups: SurveyFieldGroup[]; formats: SurveyFieldFormat[] };
+
+// --- Merge preview (POST /api/customers/{id}/esignature-documents/preview) ---
+
+export type EsignaturePreviewValue = {
+  token: string;
+  source: EsignatureTokenSource | string;
+  field?: string | null;
+  value: string | null;
+};
+
+/** A compliance review as referenced by a preview / document snapshot (camelCase). */
+export type ComplianceReviewRef = {
+  version: number;
+  year?: number | null;
+  quarter?: string | null; // "q3"
+  review?: string | null; // "first" | "second" | "final"
+  visitDate?: string | null; // yyyy-MM-dd
+  submittedOn?: string | null; // ISO-8601
+  submittedBy?: string | null;
+  status?: string | null; // preview only: "draft" | "submitted" (a `latest` selection may pick a draft)
+};
+
+export type EsignaturePreview = {
+  mergeData: EsignaturePreviewValue[];
+  complianceReview: ComplianceReviewRef | null; // the review the tokens resolved against
+  submittedReviews: ComplianceReviewRef[]; // newest first — the send-time pin dropdown
+  warnings: string[];
+};
+
+/** What a document was built from (never resolved values). */
+export type EsignatureSourceSnapshot = {
+  complianceReview?: ComplianceReviewRef | null;
 };
 
 export type EsignatureTemplateMapping = {
@@ -332,6 +391,8 @@ export type EsignatureDocument = {
   lastSyncedOn?: string | null;
   hasSignedPdf: boolean;
   createdOn?: string | null;
+  /** Which compliance review etc. the document used; null when nothing to record. */
+  sourceSnapshot?: EsignatureSourceSnapshot | null;
 };
 
 // A recipient inside EsignatureDocument.recipientsJson (snapshot of the envelope's signers).
