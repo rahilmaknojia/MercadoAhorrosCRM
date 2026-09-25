@@ -95,7 +95,7 @@ export function CustomerCoolers({
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
         <div className="space-y-0.5">
           <CardTitle className="text-base">Coolers &amp; cold vaults</CardTitle>
           <p className="text-xs text-muted-foreground">
