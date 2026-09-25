@@ -5,7 +5,6 @@ import { apiFetch } from "@/lib/server/api";
 import { getSession } from "@/lib/server/auth";
 import { authApiFetch } from "@/lib/server/auth-api";
 import {
-  COOLER_TYPES,
   type AdminUser,
   type CoolerDocument,
   type Customer,
@@ -24,6 +23,10 @@ import { CustomerActivity } from "@/components/customer-activity";
 import { CustomerCoolers } from "@/components/customer-coolers";
 import { CustomerVendors } from "@/components/customer-vendors";
 import { CustomerESignature } from "@/components/customer-esignature";
+import { SiteSurveyTabs } from "@/components/site-survey/site-survey-tabs";
+import { CokeContractCard } from "@/components/site-survey/coke-contract-card";
+import { ComplianceReviewPanel } from "@/components/site-survey/compliance/compliance-review-panel";
+import type { ComplianceHistorySummary, ComplianceState } from "@/lib/compliance";
 import { MemberTabs } from "@/components/member-tabs";
 import { BreadcrumbLabel } from "@/components/breadcrumb-context";
 import { CopyButton, CopyField } from "@/components/copy-field";
@@ -101,6 +104,27 @@ function InfoCard({
   );
 }
 
+/**
+ * The compliance review state (current + history summaries). Failure is reported, not thrown,
+ * so the rest of the member page still renders and the panel can offer a retry.
+ */
+async function fetchCompliance(id: number): Promise<{ state: ComplianceState | null; error: string | null }> {
+  try {
+    const res = await apiFetch(`/api/customers/${id}/compliance-review`);
+    if (!res.ok) return { state: null, error: `The API returned ${res.status}.` };
+    const body = (await res.json()) as Partial<ComplianceState>;
+    return {
+      state: {
+        current: body.current ?? null,
+        history: Array.isArray(body.history) ? (body.history as ComplianceHistorySummary[]) : [],
+      },
+      error: null,
+    };
+  } catch {
+    return { state: null, error: "Could not reach the API." };
+  }
+}
+
 async function fetchArray<T>(path: string): Promise<T[]> {
   try {
     const res = await apiFetch(path);
@@ -142,10 +166,10 @@ export default async function CustomerDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; sub?: string }>;
 }) {
   const { id } = await params;
-  const { tab } = await searchParams;
+  const { tab, sub } = await searchParams;
 
   // Fetch in a try/catch for transport errors, but keep notFound() OUTSIDE it —
   // notFound() throws a navigation signal that must not be swallowed by the catch.
@@ -202,6 +226,7 @@ export default async function CustomerDetailPage({
     esignTemplates,
     esignDocuments,
     neighbors,
+    compliance,
   ] = await Promise.all([
     fetchArray<StoreMetadata>(`/api/storemetadata?filters=customerId|exact|${id}&pageSize=1`),
     fetchArray<CustomerVendorSelectionGroup>(`/api/customers/${id}/vendors`),
@@ -211,13 +236,20 @@ export default async function CustomerDetailPage({
     fetchArray<EsignatureTemplate>(`/api/esignature-templates/active`),
     fetchArray<EsignatureDocument>(`/api/customers/${id}/esignature-documents`),
     fetchNeighbors(customer.id),
+    fetchCompliance(customer.id),
   ]);
 
   // Carry the active tab onto the prev/next links so stepping through members keeps you on the
   // same tab. Built once here; the ends of the list render as disabled controls.
   const prevMember = neighbors.previous;
   const nextMember = neighbors.next;
-  const neighborHref = (nid: number) => `/customers/${nid}${tab ? `?tab=${tab}` : ""}`;
+  const neighborHref = (nid: number) => {
+    const qs = new URLSearchParams();
+    if (tab) qs.set("tab", tab);
+    if (tab === "survey" && sub) qs.set("sub", sub);
+    const query = qs.toString();
+    return `/customers/${nid}${query ? `?${query}` : ""}`;
+  };
 
   // The document holds several recognized sections plus a long tail of free-form equipment keys.
   // Pull out the sections that now have real UI (and the reserved photo-caption key), and keep
@@ -226,18 +258,30 @@ export default async function CustomerDetailPage({
   let photoCaptions: Record<string, string> = {};
   let coolerDoc: CoolerDocument = {};
   let customerSignature: string | null = null;
+  let cokeContract: unknown = undefined;
   if (metadata[0]?.jsonData) {
     try {
       const parsed = JSON.parse(metadata[0].jsonData) as Record<string, unknown>;
       photoCaptions = (parsed.__photoCaptions as Record<string, string>) ?? {};
       customerSignature = (parsed.__customerSignature as string) ?? null;
+      cokeContract = parsed.coke_contract;
       coolerDoc = {
         coolers: parsed.coolers as CoolerDocument["coolers"],
         shared_coolers: parsed.shared_coolers as CoolerDocument["shared_coolers"],
         cold_vaults: parsed.cold_vaults as CoolerDocument["cold_vaults"],
       };
       const rest: Record<string, unknown> = { ...parsed };
-      for (const key of ["__photoCaptions", "__customerSignature", "coolers", "shared_coolers", "cold_vaults"]) {
+      for (const key of [
+        "__photoCaptions",
+        "__customerSignature",
+        "coolers",
+        "shared_coolers",
+        "cold_vaults",
+        // Site Survey tab — the compliance keys are written only through the compliance API.
+        "coke_contract",
+        "compliance_review",
+        "compliance_review_history",
+      ]) {
         delete rest[key];
       }
       metaJson = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : null;
@@ -246,16 +290,7 @@ export default async function CustomerDetailPage({
     }
   }
 
-  // Counts shown on the tab labels so the page advertises what's inside before you click.
-  const coolerCount = COOLER_TYPES.reduce(
-    (total, { key }) =>
-      total +
-      Object.values(coolerDoc.coolers?.[key] ?? {}).reduce(
-        (n, packages) => n + Object.keys(packages ?? {}).length,
-        0
-      ),
-    0
-  );
+  // Count shown on the tab label so the page advertises what's inside before you click.
   const vendorCount = vendorGroups.reduce(
     (n, g) => n + g.vendors.filter((v) => v.isSelected).length,
     0
@@ -436,20 +471,37 @@ export default async function CustomerDetailPage({
         tabs={[
           { value: "overview", label: "Overview", content: overview },
           {
+            // Value kept as "equipment" so existing ?tab=equipment links still land here.
             value: "equipment",
-            label: "Vendors & coolers",
-            count: vendorCount + coolerCount,
+            label: "Vendors",
+            count: vendorCount,
+            content: <CustomerVendors customerId={customer.id} groups={vendorGroups} />,
+          },
+          {
+            value: "survey",
+            label: "Site Survey",
             content: (
-              <>
-                <CustomerVendors customerId={customer.id} groups={vendorGroups} />
-                <CustomerCoolers
-                  customerId={customer.id}
-                  document={coolerDoc}
-                  brands={brands}
-                  packages={packages}
-                  sharedCoolers={sharedCoolers}
-                />
-              </>
+              <SiteSurveyTabs
+                initialSub={sub}
+                issueCount={Object.keys(compliance.state?.current?.issues ?? {}).length || undefined}
+                coolers={
+                  <CustomerCoolers
+                    customerId={customer.id}
+                    document={coolerDoc}
+                    brands={brands}
+                    packages={packages}
+                    sharedCoolers={sharedCoolers}
+                  />
+                }
+                coke={<CokeContractCard customerId={customer.id} contract={cokeContract} />}
+                compliance={
+                  <ComplianceReviewPanel
+                    customerId={customer.id}
+                    initial={compliance.state}
+                    initialError={compliance.error}
+                  />
+                }
+              />
             ),
           },
           {

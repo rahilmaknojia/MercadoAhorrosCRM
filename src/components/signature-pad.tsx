@@ -8,14 +8,20 @@ import { Button } from "@/components/ui/button";
  * A hand-drawn signature pad on a plain <canvas> (no dependency). Captures pointer strokes and,
  * on save, exports a PNG data URL. Always draws dark ink on white so the exported image reads on
  * any background.
+ *
+ * Two modes: with `onSave` it shows a Save button (signature-on-file); with only `onChange` it
+ * reports the PNG after every stroke (and `null` on clear), for forms that submit it with other
+ * data (the compliance review submit dialog).
  */
 export function SignaturePad({
   onSave,
   saving = false,
   initialDataUrl,
   saved = false,
+  onChange,
 }: {
-  onSave: (dataUrl: string) => void | Promise<void>;
+  onSave?: (dataUrl: string) => void | Promise<void>;
+  onChange?: (dataUrl: string | null) => void;
   saving?: boolean;
   initialDataUrl?: string | null;
   saved?: boolean;
@@ -23,12 +29,17 @@ export function SignaturePad({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const [hasInk, setHasInk] = useState(false);
+  // Mirrors hasInk for the pointer handlers, which can run before a re-render.
+  const inked = useRef(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ratio = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
+    // Layout size, not getBoundingClientRect: the latter includes CSS transforms, so a pad
+    // mounted inside a dialog's zoom-in animation would get a scaled-down backing store and ink
+    // would land offset from the pointer.
+    const rect = { width: canvas.offsetWidth, height: canvas.offsetHeight };
     canvas.width = Math.max(1, Math.floor(rect.width * ratio));
     canvas.height = Math.max(1, Math.floor(rect.height * ratio));
     const ctx = canvas.getContext("2d");
@@ -42,6 +53,7 @@ export function SignaturePad({
       const img = new Image();
       img.onload = () => {
         ctx.drawImage(img, 0, 0, rect.width, rect.height);
+        inked.current = true;
         setHasInk(true);
       };
       img.src = initialDataUrl;
@@ -69,10 +81,12 @@ export function SignaturePad({
     const { x, y } = point(e);
     ctx.lineTo(x, y);
     ctx.stroke();
+    inked.current = true;
     if (!hasInk) setHasInk(true);
   }
 
   function onUp() {
+    if (drawing.current && inked.current) onChange?.(canvasRef.current!.toDataURL("image/png"));
     drawing.current = false;
   }
 
@@ -80,11 +94,13 @@ export function SignaturePad({
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    inked.current = false;
     setHasInk(false);
+    onChange?.(null);
   }
 
   function save() {
-    if (!hasInk) return;
+    if (!hasInk || !onSave) return;
     onSave(canvasRef.current!.toDataURL("image/png"));
   }
 
@@ -104,10 +120,12 @@ export function SignaturePad({
         <Button type="button" variant="outline" size="sm" onClick={clear} disabled={saving}>
           <Eraser className="size-4" /> Clear
         </Button>
-        <Button type="button" size="sm" onClick={save} disabled={!hasInk || saving}>
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
-          {saved ? "Update signature" : "Save signature"}
-        </Button>
+        {onSave && (
+          <Button type="button" size="sm" onClick={save} disabled={!hasInk || saving}>
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+            {saved ? "Update signature" : "Save signature"}
+          </Button>
+        )}
         {saved && !saving && <span className="text-xs text-emerald-600">Saved ✓</span>}
       </div>
     </div>
