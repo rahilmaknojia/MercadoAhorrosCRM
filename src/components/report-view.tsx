@@ -30,7 +30,9 @@ import type {
   ReportDefinition,
   VendorReportItem,
 } from "@/lib/types";
+import { CopyAccountNumber } from "@/components/copy-field";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -39,7 +41,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 
 export const COLORS = [
   "#e11d2e",
@@ -284,11 +286,21 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<VendorReportItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   // The API requires at least one vendor selector; guide the user otherwise.
   const hasSelection = hasVendorSelection(definition);
 
   const key = JSON.stringify(definition);
+
+  // A changed definition starts over at page 1.
+  const [pagedKey, setPagedKey] = useState(key);
+  if (pagedKey !== key) {
+    setPagedKey(key);
+    setPage(1);
+  }
+
   useEffect(() => {
     // No selection → the render guard below shows guidance; nothing to fetch.
     if (!hasSelection) return;
@@ -298,10 +310,11 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
     setError(null);
     (async () => {
       try {
-        const res = await fetchVendorReport(definition);
+        const res = await fetchVendorReport(definition, page);
         if (!active) return;
         setRows(res.rows);
         setTotal(res.total);
+        setTotalPages(res.totalPages);
       } catch (e) {
         if (active) setError((e as Error).message);
       } finally {
@@ -312,7 +325,7 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, hasSelection]);
+  }, [key, hasSelection, page]);
 
   if (!hasSelection) {
     return (
@@ -389,9 +402,11 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
                           >
                             {v.name}
                             {v.accountNumber && (
-                              <span className="ml-1 font-mono text-[10px] opacity-70">
-                                #{v.accountNumber}
-                              </span>
+                              <CopyAccountNumber
+                                value={v.accountNumber}
+                                vendorName={v.name}
+                                className="ml-1 opacity-70 hover:opacity-100"
+                              />
                             )}
                           </Badge>
                         ))}
@@ -404,6 +419,30 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
           </TableBody>
         </Table>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-end gap-2">
+          <span className="text-xs text-muted-foreground">
+            Page {page} of {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            <ChevronLeft /> Prev
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          >
+            Next <ChevronRight />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

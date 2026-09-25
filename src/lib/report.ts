@@ -237,24 +237,30 @@ export function buildVendorParams(def: ReportDefinition): URLSearchParams {
   return p;
 }
 
+export const VENDOR_REPORT_PAGE_SIZE = 100;
+
 export async function fetchVendorReport(
-  def: ReportDefinition
-): Promise<{ rows: VendorReportItem[]; total: number }> {
+  def: ReportDefinition,
+  page = 1
+): Promise<{ rows: VendorReportItem[]; total: number; totalPages: number }> {
   const p = buildVendorParams(def);
-  p.set("pageNumber", "1");
-  p.set("pageSize", "100");
-  if (def.sortField) {
-    p.set("sortField", def.sortField);
-    p.set("ascending", String(def.ascending ?? true));
-  }
+  p.set("pageNumber", String(page));
+  p.set("pageSize", String(VENDOR_REPORT_PAGE_SIZE));
+  // Default to Member ID order so rows are predictable (the API otherwise orders by internal id).
+  p.set("sortField", def.sortField || "memberId");
+  p.set("ascending", String(def.ascending ?? true));
   const res = await fetch(`/api/report-data/reports/customer-vendor?${p.toString()}`, {
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`Failed to run report (${res.status}).`);
   const rows = (await res.json()) as VendorReportItem[];
   const header = res.headers.get("x-pagination");
-  const total = header ? (JSON.parse(header).TotalCount as number) : rows.length;
-  return { rows: Array.isArray(rows) ? rows : [], total };
+  const pagination = header
+    ? (JSON.parse(header) as { TotalCount?: number; TotalPages?: number })
+    : {};
+  const total = pagination.TotalCount ?? rows.length;
+  const totalPages = Math.max(1, pagination.TotalPages ?? Math.ceil(total / VENDOR_REPORT_PAGE_SIZE));
+  return { rows: Array.isArray(rows) ? rows : [], total, totalPages };
 }
 
 // Load the grouped vendor catalogue for the builder's vendor picker.

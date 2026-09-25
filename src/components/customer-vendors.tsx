@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { setCustomerVendors } from "@/app/(app)/customers/[id]/vendor-actions";
+import { CopyAccountNumber } from "@/components/copy-field";
 import { useCan } from "@/components/permissions-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -249,12 +250,11 @@ export function CustomerVendors({
                             {isSelected && <Check className="size-3 text-emerald-600" />}
                             {vendor.name}
                             {isSelected && account && (
-                              <span
-                                className="font-mono text-[10px] text-emerald-700/80"
-                                title={`${vendor.name} account number`}
-                              >
-                                #{account}
-                              </span>
+                              <CopyAccountNumber
+                                value={account}
+                                vendorName={vendor.name}
+                                className="text-emerald-700/80"
+                              />
                             )}
                           </span>
                         );

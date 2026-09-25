@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 /**
@@ -70,5 +71,46 @@ export function CopyField({
         <span className="truncate text-right font-medium">{value}</span>
       </span>
     </div>
+  );
+}
+
+/**
+ * An inline "#account" chip that copies the account number on click and confirms with a toast
+ * naming exactly what was copied. Stops propagation so it works inside clickable table rows.
+ */
+export function CopyAccountNumber({
+  value,
+  vendorName,
+  className,
+}: {
+  value: string;
+  vendorName?: string;
+  className?: string;
+}) {
+  async function copy(e: React.MouseEvent) {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`Copied "${value}"`, {
+        description: vendorName ? `${vendorName} account number` : undefined,
+      });
+    } catch {
+      toast.error("Couldn't copy to the clipboard.");
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title={`Copy ${vendorName ? `${vendorName} ` : ""}account number`}
+      aria-label={`Copy account number ${value}`}
+      className={cn(
+        "cursor-copy rounded font-mono text-[10px] underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none",
+        className
+      )}
+    >
+      #{value}
+    </button>
   );
 }
