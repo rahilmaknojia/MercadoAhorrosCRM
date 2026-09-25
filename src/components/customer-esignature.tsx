@@ -10,8 +10,11 @@ import {
   sendEsignatureDocument,
   startInPersonFromTemplate,
 } from "@/app/(app)/customers/[id]/esignature-actions";
+import { saveCustomerSignature } from "@/app/(app)/customers/onboard/actions";
+import { CustomerSignatureCard } from "@/components/customer-signature-card";
 import { useCan } from "@/components/permissions-provider";
 import { PdfViewerModal } from "@/components/pdf-viewer-modal";
+import { SignaturePad } from "@/components/signature-pad";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,13 +34,22 @@ import { Download, Eye, Loader2, PenLine, RefreshCw, Send, Trash2, X } from "luc
 type ActiveSession = { url: string; documentId: number };
 type Signer = { name: string; email: string };
 
-function manualRoles(t: EsignatureTemplate) {
+function mappingRoles(t: EsignatureTemplate) {
   try {
     const m = JSON.parse(t.mappingJson) as EsignatureTemplateMapping;
-    return (m.roles ?? []).filter((r) => r.source === "manual");
+    return m.roles ?? [];
   } catch {
     return [];
   }
+}
+
+function manualRoles(t: EsignatureTemplate) {
+  return mappingRoles(t).filter((r) => r.source === "manual");
+}
+
+// Signature-on-file only pre-fills a role bound to the customer; templates without one skip it.
+function hasCustomerRole(t: EsignatureTemplate): boolean {
+  return mappingRoles(t).some((r) => r.source === "customer");
 }
 
 const TERMINAL = new Set(["completed", "signed", "voided", "declined", "expired"]);
@@ -87,17 +99,21 @@ export function CustomerESignature({
   documents,
   currentUser,
   orgUsers,
+  initialSignature,
 }: {
   customerId: number;
   templates: EsignatureTemplate[];
   documents: EsignatureDocument[];
   currentUser: Signer | null;
   orgUsers: Signer[];
+  initialSignature: string | null;
 }) {
   const canSend = useCan("customer_data:create");
   const canDelete = useCan("customer_data:delete");
   const router = useRouter();
   const [session, setSession] = useState<ActiveSession | null>(null);
+  // Signature-on-file, shared by the card and the in-person check so a capture in either shows in both.
+  const [signature, setSignature] = useState<string | null>(initialSignature);
   const [activeTag, setActiveTag] = useState<string>(ALL_TAGS);
   // Advanced filters (client-side — a customer has few documents): by status and by the
   // Updated/Created date. Initial state is "no filter", so SSR and the first client render agree.
@@ -198,6 +214,12 @@ export function CustomerESignature({
 
   return (
     <div className="space-y-4">
+      <CustomerSignatureCard
+        customerId={customerId}
+        signature={signature}
+        onSignatureChange={setSignature}
+      />
+
       {canSend && templates.length > 0 && (
         <Card>
           <CardHeader>
@@ -212,6 +234,8 @@ export function CustomerESignature({
                 onSession={setSession}
                 currentUser={currentUser}
                 orgUsers={orgUsers}
+                signature={signature}
+                onSignatureChange={setSignature}
               />
             ))}
           </CardContent>
@@ -388,14 +412,23 @@ function TemplateSender({
   onSession,
   currentUser,
   orgUsers,
+  signature,
+  onSignatureChange,
 }: {
   customerId: number;
   template: EsignatureTemplate;
   onSession: (s: ActiveSession) => void;
   currentUser: Signer | null;
   orgUsers: Signer[];
+  signature: string | null;
+  onSignatureChange: (dataUrl: string) => void;
 }) {
   const roles = manualRoles(template);
+  const canCaptureSignature = useCan("customer_data:update");
+  // In-person check step: confirm (or capture) the customer's signature before launching.
+  const [preflight, setPreflight] = useState(false);
+  const [useSignatureOnFile, setUseSignatureOnFile] = useState(true);
+  const [savingSignature, setSavingSignature] = useState(false);
 
   // Users pickable for a manual role: the logged-in user first ("Me"), then other org users.
   const userOptions = useMemo(() => {
@@ -476,15 +509,41 @@ function TemplateSender({
 
   function signInPerson() {
     if (missingManual()) return;
+    // Templates with no customer role have nothing to pre-fill — launch straight away.
+    if (!hasCustomerRole(template)) {
+      startSigning(false);
+      return;
+    }
+    setUseSignatureOnFile(true);
+    setPreflight(true);
+  }
+
+  // Launch the in-person session. With `prefill`, the API supplies the signature on file to
+  // NinjaFlow (the customer still reviews and submits); without it they draw it in the document.
+  function startSigning(prefill: boolean) {
     startTransition(async () => {
-      const res = await startInPersonFromTemplate(customerId, template.id, Object.values(recipients));
+      const res = await startInPersonFromTemplate(customerId, template.id, Object.values(recipients), prefill);
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
       setRecipients({});
+      setPreflight(false);
       onSession({ url: res.data.session.url, documentId: res.data.documentId });
     });
+  }
+
+  async function captureSignature(dataUrl: string) {
+    setSavingSignature(true);
+    const res = await saveCustomerSignature(customerId, dataUrl);
+    setSavingSignature(false);
+    if (!res.ok) {
+      toast.error(res.error ?? "Could not save the signature.");
+      return;
+    }
+    onSignatureChange(dataUrl);
+    setUseSignatureOnFile(true);
+    toast.success("Signature saved.");
   }
 
   return (
@@ -496,11 +555,17 @@ function TemplateSender({
             <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />
             Email signers now
           </label>
-          <Button variant="outline" size="sm" onClick={signInPerson} disabled={pending} className="gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={signInPerson}
+            disabled={pending || preflight}
+            className="gap-1.5"
+          >
             <PenLine className="h-3.5 w-3.5" />
             Sign in person
           </Button>
-          <Button size="sm" onClick={send} disabled={pending} className="gap-1.5">
+          <Button size="sm" onClick={send} disabled={pending || preflight} className="gap-1.5">
             {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
             Send
           </Button>
@@ -541,6 +606,61 @@ function TemplateSender({
               </div>
             </div>
           ))}
+        </div>
+      )}
+      {preflight && (
+        <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium">Customer signature</span>
+            <Button size="sm" variant="ghost" onClick={() => setPreflight(false)} disabled={pending}>
+              <X /> Cancel
+            </Button>
+          </div>
+          {signature ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={signature}
+                alt="Customer signature on file"
+                className="h-16 w-auto rounded-md border bg-white p-1"
+              />
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={useSignatureOnFile}
+                  onChange={(e) => setUseSignatureOnFile(e.target.checked)}
+                />
+                <span>
+                  Pre-fill the document with this signature. The customer still reviews and
+                  submits, and can redraw it.
+                </span>
+              </label>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                No signature on file.{" "}
+                {canCaptureSignature
+                  ? "Capture it now to pre-fill the document, or continue and the customer signs in the document."
+                  : "The customer will sign in the document."}
+              </p>
+              {canCaptureSignature && (
+                <SignaturePad onSave={captureSignature} saving={savingSignature} />
+              )}
+            </>
+          )}
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              onClick={() => startSigning(!!signature && useSignatureOnFile)}
+              disabled={pending || savingSignature}
+              className="gap-1.5"
+            >
+              {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PenLine className="h-3.5 w-3.5" />}
+              {signature && useSignatureOnFile ? "Start signing" : "Continue — customer signs in document"}
+            </Button>
+          </div>
         </div>
       )}
     </div>

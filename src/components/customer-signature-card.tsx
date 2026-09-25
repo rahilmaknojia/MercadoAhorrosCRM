@@ -11,18 +11,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCan } from "@/components/permissions-provider";
 
 /**
- * The customer's signature-on-file. Shown in the eSignature tab; it pre-fills the signature field
- * on any document later sent to this customer (handled server-side). Editable when permitted.
+ * The customer's signature-on-file. Shown in the eSignature tab; it pre-fills the customer's
+ * signature field when a document is signed in person (handled server-side). Editable when
+ * permitted. Controlled — the eSignature tab shares the value with its in-person flow.
  */
 export function CustomerSignatureCard({
   customerId,
-  initialSignature,
+  signature,
+  onSignatureChange,
 }: {
   customerId: number;
-  initialSignature: string | null;
+  signature: string | null;
+  onSignatureChange: (dataUrl: string) => void;
 }) {
   const canEdit = useCan("customer_data:update");
-  const [signature, setSignature] = useState(initialSignature);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [, startTransition] = useTransition();
@@ -33,7 +35,7 @@ export function CustomerSignatureCard({
       const res = await saveCustomerSignature(customerId, dataUrl);
       setSaving(false);
       if (res.ok) {
-        setSignature(dataUrl);
+        onSignatureChange(dataUrl);
         setEditing(false);
         toast.success("Signature saved.");
       } else {
@@ -66,8 +68,8 @@ export function CustomerSignatureCard({
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            No signature captured. It pre-fills the signature field on documents you send this
-            customer.
+            No signature captured. Capture it before signing a document in person and it is
+            pre-filled for the customer; without it, they sign in the document.
           </p>
         )}
       </CardContent>

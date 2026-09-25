@@ -24,7 +24,6 @@ import { CustomerActivity } from "@/components/customer-activity";
 import { CustomerCoolers } from "@/components/customer-coolers";
 import { CustomerVendors } from "@/components/customer-vendors";
 import { CustomerESignature } from "@/components/customer-esignature";
-import { CustomerSignatureCard } from "@/components/customer-signature-card";
 import { MemberTabs } from "@/components/member-tabs";
 import { BreadcrumbLabel } from "@/components/breadcrumb-context";
 import { CopyButton, CopyField } from "@/components/copy-field";
@@ -469,19 +468,14 @@ export default async function CustomerDetailPage({
             label: "eSignature",
             count: esignDocuments.length || undefined,
             content: (
-              <div className="space-y-4">
-                <CustomerSignatureCard
-                  customerId={customer.id}
-                  initialSignature={customerSignature}
-                />
-                <CustomerESignature
-                  customerId={customer.id}
-                  templates={esignTemplates}
-                  documents={esignDocuments}
-                  currentUser={currentUser}
-                  orgUsers={orgUsers}
-                />
-              </div>
+              <CustomerESignature
+                customerId={customer.id}
+                templates={esignTemplates}
+                documents={esignDocuments}
+                currentUser={currentUser}
+                orgUsers={orgUsers}
+                initialSignature={customerSignature}
+              />
             ),
           },
           {

@@ -70,17 +70,20 @@ export async function launchInPersonSigning(
 
 /**
  * One-call "start fresh + sign now": create a draft document from a template for the customer,
- * then immediately mint an in-person signing session.
+ * then immediately mint an in-person signing session. With `useSignatureOnFile`, the API pre-fills
+ * the customer's signature field with their captured signature (the customer still submits);
+ * otherwise — or when none is on file — they sign in the document.
  */
 export async function startInPersonFromTemplate(
   customerId: number,
   templateId: number,
   recipients: EsignatureManualRecipient[],
+  useSignatureOnFile: boolean,
   returnUrl?: string
 ): Promise<LaunchResult> {
   const res = await apiFetch(`/api/customers/${customerId}/esignature-documents/in-person`, {
     method: "POST",
-    body: JSON.stringify({ templateId, recipients, returnUrl: returnUrl ?? null }),
+    body: JSON.stringify({ templateId, recipients, useSignatureOnFile, returnUrl: returnUrl ?? null }),
   }).catch(() => null);
   if (!res) return { ok: false, error: "Could not reach the API." };
   if (!res.ok) return { ok: false, error: await readError(res, "Could not start signing.") };
