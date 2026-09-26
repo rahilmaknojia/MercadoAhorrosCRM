@@ -2,9 +2,9 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { CUSTOMER_FIELDS, COOLER_METADATA_PATHS } from "@/lib/report";
+import { COOLER_METADATA_PATHS } from "@/lib/report";
 import { cn } from "@/lib/utils";
-import { tagBadgeClass } from "@/lib/esign";
+import { ESIGN_CUSTOMER_FIELD_GROUPS, tagBadgeClass } from "@/lib/esign";
 import { parseTemplateMapping, tokenNameForField } from "@/lib/esign-survey";
 import type {
   EsignatureAvailableTemplate,
@@ -654,10 +654,14 @@ function FieldSelect({
       <label className="text-xs font-medium">{label}</label>
       <select className={`${selectClass} w-full`} value={value} onChange={(e) => onChange(e.target.value)}>
         {allowNone && <option value="">None</option>}
-        {CUSTOMER_FIELDS.map((f) => (
-          <option key={f.value} value={f.value}>
-            {f.label}
-          </option>
+        {ESIGN_CUSTOMER_FIELD_GROUPS.map((g) => (
+          <optgroup key={g.label} label={g.label}>
+            {g.fields.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
     </div>

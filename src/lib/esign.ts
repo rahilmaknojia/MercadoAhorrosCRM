@@ -15,3 +15,72 @@ export function tagBadgeClass(tag: string): string {
   for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) >>> 0;
   return TAG_PALETTE[hash % TAG_PALETTE.length];
 }
+
+// Customer fields an eSignature template can map (merge tokens + signer name/email/phone).
+// Mirrors the API's CustomerFieldAccessor — add a field there first, then here. Deliberately
+// separate from the reports' CUSTOMER_FIELDS, which is limited to what report filters support.
+export const ESIGN_CUSTOMER_FIELD_GROUPS = [
+  {
+    label: "Member",
+    fields: [
+      { value: "memberId", label: "Member ID" },
+      { value: "status", label: "Status" },
+      { value: "dateJoined", label: "Date joined" },
+      { value: "dateInactive", label: "Date inactive" },
+      { value: "inactiveReason", label: "Inactive reason" },
+      { value: "reinstated", label: "Reinstated" },
+      { value: "signedBy", label: "Signed by" },
+      { value: "comments", label: "Comments" },
+    ],
+  },
+  {
+    label: "Business",
+    fields: [
+      { value: "businessName", label: "Business name" },
+      { value: "corpName", label: "Corporate name" },
+      { value: "salesTaxId", label: "Sales tax ID" },
+      { value: "federalTaxId", label: "Federal tax ID" },
+    ],
+  },
+  {
+    label: "Contact",
+    fields: [
+      { value: "contactName", label: "Contact name" },
+      { value: "personTitle", label: "Title" },
+      { value: "email", label: "Email" },
+      { value: "storePhone", label: "Store phone" },
+      { value: "cellPhone", label: "Cell phone" },
+      { value: "storeFax", label: "Store fax" },
+    ],
+  },
+  {
+    label: "Store address",
+    fields: [
+      { value: "storeFullAddress", label: "Store address (one line)" },
+      { value: "storeAddress", label: "Store street" },
+      { value: "storeCity", label: "Store city" },
+      { value: "storeState", label: "Store state" },
+      { value: "storeZipcode", label: "Store ZIP" },
+    ],
+  },
+  {
+    label: "Mailing address",
+    fields: [
+      { value: "mailingFullAddress", label: "Mailing address (one line)" },
+      { value: "mailingAddress", label: "Mailing street" },
+      { value: "mailingCity", label: "Mailing city" },
+      { value: "mailingState", label: "Mailing state" },
+      { value: "mailingZipcode", label: "Mailing ZIP" },
+    ],
+  },
+  {
+    label: "Territory",
+    fields: [
+      { value: "region", label: "Region" },
+      { value: "district", label: "District" },
+      { value: "zoneNo", label: "Zone no." },
+      { value: "zoneManager", label: "Zone manager" },
+      { value: "storeGroup", label: "Store group" },
+    ],
+  },
+] as const;
