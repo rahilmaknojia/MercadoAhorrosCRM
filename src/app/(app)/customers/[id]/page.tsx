@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+import { loadCustomer, memberPageMetadata } from "@/lib/server/customer";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { apiFetch } from "@/lib/server/api";
@@ -161,6 +163,15 @@ async function fetchNeighbors(
   }
 }
 
+// Browser tab title: "MA001 - La Moreliana Meat Market".
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  return memberPageMetadata(params);
+}
+
 export default async function CustomerDetailPage({
   params,
   searchParams,
@@ -171,27 +182,23 @@ export default async function CustomerDetailPage({
   const { id } = await params;
   const { tab, sub } = await searchParams;
 
-  // Fetch in a try/catch for transport errors, but keep notFound() OUTSIDE it —
-  // notFound() throws a navigation signal that must not be swallowed by the catch.
-  let res: Response;
-  try {
-    res = await apiFetch(`/api/customers/${id}`);
-  } catch {
+  // notFound() stays outside any try/catch — it throws a navigation signal that must not be swallowed.
+  const { status, customer } = await loadCustomer(id);
+  if (status === null) {
     return (
       <div className="rounded-md border border-destructive/40 bg-destructive/5 p-6 text-sm text-destructive">
         Failed to load customer.
       </div>
     );
   }
-  if (res.status === 404) notFound();
-  if (!res.ok) {
+  if (status === 404) notFound();
+  if (!customer) {
     return (
       <div className="rounded-md border border-destructive/40 bg-destructive/5 p-6 text-sm text-destructive">
-        Failed to load customer ({res.status}).
+        Failed to load customer ({status}).
       </div>
     );
   }
-  const customer = (await res.json()) as Customer;
 
   // Field-rep prefill for manual signer roles: the logged-in user, plus org users to pick from.
   // The auth admin list-users endpoint is owner/admin-only, so a non-privileged rep just gets
