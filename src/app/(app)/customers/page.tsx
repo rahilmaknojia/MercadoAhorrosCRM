@@ -79,7 +79,10 @@ export default async function CustomersPage({
     .filter(Boolean);
   const vendorMatchAll = sp.vmatch === "all";
   const sortField = SORTABLE_FIELDS.has(sp.sort ?? "") ? sp.sort! : "memberId";
-  const ascending = (sp.dir ?? "asc") !== "desc";
+  // Member ID defaults to newest first (highest MA#; the API sorts it numerically); other columns
+  // default to A→Z.
+  const defaultDir = (field: string) => (field === "memberId" ? "desc" : "asc");
+  const ascending = (sp.dir ?? defaultDir(sortField)) !== "desc";
   const pageNumber = Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1);
 
   const params = new URLSearchParams({
@@ -141,14 +144,19 @@ export default async function CustomersPage({
     const dir = overrides.dir ?? (ascending ? "asc" : "desc");
     const pg = overrides.page ?? pageNumber;
     if (sort !== "memberId") usp.set("sort", sort);
-    if (dir !== "asc") usp.set("dir", dir);
+    if (dir !== defaultDir(sort)) usp.set("dir", dir);
     if (pg > 1) usp.set("page", String(pg));
     const query = usp.toString();
     return query ? `/customers?${query}` : "/customers";
   };
-  // A sortable column header: toggles direction when already active, else ascending, resets page.
+  // A sortable column header: toggles direction when already active, else starts in the column's
+  // default direction (Member newest first, others A→Z); resets the page.
   const sortHref = (field: string) =>
-    hrefWith({ sort: field, dir: sortField === field && ascending ? "desc" : "asc", page: 1 });
+    hrefWith({
+      sort: field,
+      dir: sortField === field ? (ascending ? "desc" : "asc") : defaultDir(field),
+      page: 1,
+    });
   const SortHead = ({ field, label }: { field: string; label: string }) => {
     const active = sortField === field;
     return (
