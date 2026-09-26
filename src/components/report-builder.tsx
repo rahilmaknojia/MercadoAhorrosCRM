@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useProgressRouter } from "@/components/navigation-progress";
 import { toast } from "sonner";
 import { saveReport } from "@/app/(app)/reports/actions";
 import {
@@ -71,7 +71,7 @@ export function ReportBuilder({
   const [keeping, setKeeping] = useState(false);
   const canCreate = useCan("reports:create");
   const showPresetFields = !isQuery || keeping;
-  const router = useRouter();
+  const router = useProgressRouter();
   const def = initial?.definition;
 
   const [name, setName] = useState(initial?.name ?? "");

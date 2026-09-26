@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useProgressRouter } from "@/components/navigation-progress";
 import {
   Bar,
   BarChart,
@@ -70,7 +70,7 @@ export function ReportView({ definition }: { definition: ReportDefinition }) {
 }
 
 function CustomerReportView({ definition }: { definition: ReportDefinition }) {
-  const router = useRouter();
+  const router = useProgressRouter();
   const viz = definition.visualization ?? "table";
 
   // Build a drill-through link to the filtered customer list for a clicked segment.

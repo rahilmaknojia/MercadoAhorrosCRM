@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useProgressRouter } from "@/components/navigation-progress";
 import { toast } from "sonner";
 import { Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import {
@@ -32,7 +32,7 @@ export function MemberOnboardingWizard({
   suggestions: Record<string, string[]>;
   requiresApproval: boolean;
 }) {
-  const router = useRouter();
+  const router = useProgressRouter();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<OnboardingMemberInput>({
     contactName: "",

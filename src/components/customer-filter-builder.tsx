@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useProgressRouter } from "@/components/navigation-progress";
 import { cn } from "@/lib/utils";
 import { META_OPS, type FilterCondition } from "@/lib/customer-filters";
 import { fieldLabel } from "@/lib/report";
@@ -61,7 +61,7 @@ export function CustomerFilterBuilder({
   initialVendorCodes?: string[];
   initialMatchAll?: boolean;
 }) {
-  const router = useRouter();
+  const router = useProgressRouter();
   const [open, setOpen] = useState(
     initialConditions.length > 0 || initialVendorCodes.length > 0
   );

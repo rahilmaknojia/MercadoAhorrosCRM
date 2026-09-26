@@ -6,6 +6,7 @@ import type { Permissions } from "@/lib/types";
 import { PermissionsProvider } from "@/components/permissions-provider";
 import { AppShell } from "@/components/app-shell";
 import { Toaster } from "@/components/ui/sonner";
+import { NavigationProgress } from "@/components/navigation-progress";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const cookie = (await headers()).get("cookie");
@@ -35,6 +36,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       >
         {children}
       </AppShell>
+      <NavigationProgress />
       <Toaster />
     </PermissionsProvider>
   );
