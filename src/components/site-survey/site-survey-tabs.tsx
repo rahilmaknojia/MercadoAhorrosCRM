@@ -52,14 +52,16 @@ export function SiteSurveyTabs({
             key={value}
             value={value}
             className={cn(
-              "flex-1 justify-center rounded-lg px-3 py-1.5 sm:flex-none",
-              "data-[selected]:bg-background data-[selected]:text-foreground data-[selected]:shadow-sm"
+              "group flex-1 justify-center rounded-lg px-3 py-1.5 sm:flex-none",
+              // Active sub-tab takes the logo red. Base UI sets data-active, not data-selected.
+              "data-[active]:bg-brand data-[active]:text-brand-foreground data-[active]:shadow-sm",
+              "data-[active]:hover:text-brand-foreground"
             )}
           >
             <Icon className="size-4" />
             {label}
             {value === "compliance" && !!issueCount && (
-              <span className="rounded-full bg-destructive/10 px-1.5 py-0.5 text-xs tabular-nums text-destructive">
+              <span className="rounded-full bg-destructive/10 px-1.5 py-0.5 text-xs tabular-nums text-destructive group-data-[active]:bg-brand-foreground/20 group-data-[active]:text-brand-foreground">
                 {issueCount}
               </span>
             )}
