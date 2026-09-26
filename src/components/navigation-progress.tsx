@@ -20,6 +20,26 @@ export function startNavigationProgress() {
   window.dispatchEvent(new Event(START_EVENT));
 }
 
+// Loading skeletons (loading.tsx) currently on screen. With a prefetched skeleton the URL changes
+// almost instantly — the real wait is while the skeleton shows — so the bar keeps running until the
+// last skeleton unmounts. Module-level because on a first page load the skeleton's effect runs
+// before the bar (in the layout above it) has attached its listeners.
+let skeletonHolds = 0;
+const HOLDS_CHANGED_EVENT = "nav-progress:holds";
+
+/** Render inside a loading skeleton: keeps the progress bar running until the page replaces it. */
+export function NavigationHold() {
+  useEffect(() => {
+    skeletonHolds += 1;
+    window.dispatchEvent(new Event(HOLDS_CHANGED_EVENT));
+    return () => {
+      skeletonHolds = Math.max(0, skeletonHolds - 1);
+      window.dispatchEvent(new Event(HOLDS_CHANGED_EVENT));
+    };
+  }, []);
+  return null;
+}
+
 /** useRouter() whose push/replace also start the progress bar. */
 export function useProgressRouter() {
   const router = useRouter();
@@ -73,13 +93,18 @@ function ProgressBar() {
     timers.current = [];
   }
 
-  // Finish whenever the URL changes (the navigation committed).
-  useEffect(() => {
+  function finish() {
     if (!active.current) return;
     active.current = false;
     clearTimers();
     setProgress((p) => (p === null ? null : 100));
     timers.current.push(window.setTimeout(() => setProgress(null), 250));
+  }
+
+  // Finish when the URL changes (the navigation committed) — unless a loading skeleton is still
+  // showing, in which case the page itself hasn't arrived yet; its unmount finishes the bar.
+  useEffect(() => {
+    if (skeletonHolds === 0) finish();
   }, [url]);
 
   useEffect(() => {
@@ -130,6 +155,13 @@ function ProgressBar() {
       if (isNewUrl(target.href)) start();
     }
 
+    // A skeleton appeared (start, e.g. a first page load or a navigation we didn't see begin) or
+    // the last one went away (the page has rendered: finish).
+    function onHoldsChanged() {
+      if (skeletonHolds > 0) start();
+      else finish();
+    }
+
     // Back/forward: the browser URL has already moved; show progress until the page catches up.
     function onPopState() {
       if (`${window.location.pathname}?${window.location.search.slice(1)}` !== renderedUrl.current) start();
@@ -140,7 +172,11 @@ function ProgressBar() {
     document.addEventListener("submit", onSubmit, true);
     window.addEventListener(START_EVENT, start);
     window.addEventListener("popstate", onPopState);
+    window.addEventListener(HOLDS_CHANGED_EVENT, onHoldsChanged);
+    // A skeleton that mounted before these listeners (first page load) still gets its bar.
+    if (skeletonHolds > 0) start();
     return () => {
+      window.removeEventListener(HOLDS_CHANGED_EVENT, onHoldsChanged);
       document.removeEventListener("click", onClick, true);
       document.removeEventListener("submit", onSubmit, true);
       window.removeEventListener(START_EVENT, start);

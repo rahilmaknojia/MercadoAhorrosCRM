@@ -1,4 +1,5 @@
 import { Loader2 } from "lucide-react";
+import { NavigationHold } from "@/components/navigation-progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +14,9 @@ export function LoadingLabel({ label }: { label: string }) {
     <div role="status" aria-live="polite" className="flex items-center gap-2 text-sm text-muted-foreground">
       <Loader2 className="size-4 animate-spin" />
       {label}
+      {/* Every skeleton renders this label, so this keeps the top progress bar running for as
+          long as any skeleton is on screen. */}
+      <NavigationHold />
     </div>
   );
 }
