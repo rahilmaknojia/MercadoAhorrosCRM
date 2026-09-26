@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useFileDownload } from "@/lib/download";
 import { Download, Loader2, Minus, Plus, X } from "lucide-react";
 
 const MIN_SCALE = 0.5;
@@ -29,6 +30,7 @@ export function PdfViewerModal({
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [scale, setScale] = useState(1.2);
   const [skip, setSkip] = useState("");
+  const { downloading, download } = useFileDownload();
 
   // Load the document once.
   useEffect(() => {
@@ -126,10 +128,26 @@ export function PdfViewerModal({
               value={skip}
               onChange={(e) => setSkip(e.target.value)}
             />
-            <a href={exportHref} className={buttonVariants({ variant: "outline", size: "sm" })}>
-              <Download className="h-3.5 w-3.5" />
-              Download
-            </a>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => download(exportHref, `${title}.pdf`)}
+              disabled={downloading}
+              aria-busy={downloading}
+              className="gap-1.5"
+            >
+              {downloading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              {downloading ? "Preparing download…" : "Download"}
+            </Button>
+            {downloading && (
+              <span className="text-xs text-muted-foreground" role="status">
+                This can take a few seconds — please don&apos;t close or refresh.
+              </span>
+            )}
           </div>
         </div>
 

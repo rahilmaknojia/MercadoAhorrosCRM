@@ -14,6 +14,7 @@ import { saveCustomerSignature } from "@/app/(app)/customers/onboard/actions";
 import { CustomerSignatureCard } from "@/components/customer-signature-card";
 import { useCan } from "@/components/permissions-provider";
 import { PdfViewerModal } from "@/components/pdf-viewer-modal";
+import { useFileDownload } from "@/lib/download";
 import { SignaturePad } from "@/components/signature-pad";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -732,8 +733,11 @@ function DocumentRow({
   );
   const basePath = `/customers/${customerId}/esignature/${document.id}/download`;
 
+  // Full signed PDF (skip-export lives in the viewer). Fetched in the background so the button can
+  // show progress while NinjaFlow prepares the file.
+  const { downloading, download } = useFileDownload();
   function downloadPdf() {
-    window.open(`${basePath}?download=true`, "_blank"); // full signed PDF (skip-export lives in the viewer)
+    void download(`${basePath}?download=true`, `${document.name || "signed-document"}.pdf`);
   }
 
   function refresh() {
@@ -817,8 +821,23 @@ function DocumentRow({
               <Eye className="h-3.5 w-3.5" />
               View
             </Button>
-            <Button variant="ghost" size="sm" onClick={downloadPdf} title="Download signed PDF">
-              <Download className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={downloadPdf}
+              disabled={downloading}
+              aria-busy={downloading}
+              title={downloading ? "Preparing download…" : "Download signed PDF"}
+              className="gap-1.5"
+            >
+              {downloading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-xs">Preparing…</span>
+                </>
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
             </Button>
           </>
         )}
