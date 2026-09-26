@@ -42,6 +42,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export const COLORS = [
   "#e11d2e",
@@ -279,9 +280,23 @@ function CustomerReportView({ definition }: { definition: ReportDefinition }) {
   );
 }
 
+// Opens the customer in a new tab; stops propagation so the row's same-tab click doesn't also fire.
+function NewTabLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="hover:underline underline-offset-2"
+    >
+      {children}
+    </a>
+  );
+}
+
 // Customer ↔ Vendor report: one row per customer with their selected vendors.
 function VendorReportTable({ definition }: { definition: ReportDefinition }) {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<VendorReportItem[]>([]);
@@ -293,6 +308,19 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
   const hasSelection = hasVendorSelection(definition);
 
   const key = JSON.stringify(definition);
+
+  // Vendors the report filters on (by code or group), highlighted in each row's tags.
+  const toSet = (csv?: string) =>
+    new Set(
+      (csv ?? "")
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean)
+    );
+  const filterCodes = toSet(definition.vendorCodes);
+  const filterGroups = toSet(definition.vendorGroupNames);
+  const isFilterVendor = (v: VendorReportItem["selectedVendors"][number]) =>
+    filterCodes.has(v.code.toLowerCase()) || filterGroups.has(v.groupName.toLowerCase());
 
   // A changed definition starts over at page 1.
   const [pagedKey, setPagedKey] = useState(key);
@@ -378,9 +406,13 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
                 <TableRow
                   key={r.customerId}
                   className="cursor-pointer"
-                  onClick={() => router.push(`/customers/${r.customerId}`)}
+                  onClick={() =>
+                    window.open(`/customers/${r.customerId}`, "_blank", "noopener,noreferrer")
+                  }
                 >
-                  <TableCell className="font-medium">{r.memberId}</TableCell>
+                  <TableCell className="font-medium">
+                    <NewTabLink href={`/customers/${r.customerId}`}>{r.memberId || "—"}</NewTabLink>
+                  </TableCell>
                   <TableCell>{r.businessName || r.contactName || "—"}</TableCell>
                   <TableCell>{r.storeCity || "—"}</TableCell>
                   <TableCell>{r.storeState || "—"}</TableCell>
@@ -394,6 +426,10 @@ function VendorReportTable({ definition }: { definition: ReportDefinition }) {
                           <Badge
                             key={v.vendorId}
                             variant="secondary"
+                            className={cn(
+                              isFilterVendor(v) &&
+                                "border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200"
+                            )}
                             title={
                               v.accountNumber
                                 ? `${v.groupName} · account ${v.accountNumber}`
