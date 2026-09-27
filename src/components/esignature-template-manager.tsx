@@ -3,8 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { COOLER_METADATA_PATHS } from "@/lib/report";
-import { cn } from "@/lib/utils";
-import { ESIGN_CUSTOMER_FIELD_GROUPS, tagBadgeClass } from "@/lib/esign";
+import { ESIGN_CUSTOMER_FIELD_GROUPS } from "@/lib/esign";
 import { parseTemplateMapping, tokenNameForField } from "@/lib/esign-survey";
 import type {
   EsignatureAvailableTemplate,
@@ -23,12 +22,12 @@ import {
   updateEsignatureTemplate,
 } from "@/app/(app)/settings/esignature/actions";
 import { useCan } from "@/components/permissions-provider";
+import { EsignatureTemplateOrderList } from "@/components/esignature-template-order-list";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SurveyTokenEditor } from "@/components/esignature-survey-field";
-import { ListPlus, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ListPlus, Loader2, Plus, X } from "lucide-react";
 
 const selectClass =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -66,6 +65,7 @@ type Editor = {
   description: string;
   tag: string;
   isActive: boolean;
+  isRequired: boolean;
   roles: EsignatureRoleMapping[];
   tokens: EditorToken[];
   /** The NinjaFlow template's merge-token names; null when unknown (couldn't be loaded). */
@@ -108,6 +108,7 @@ export function EsignatureTemplateManager({
         description: "",
         tag: "",
         isActive: true,
+        isRequired: false,
         roles: [],
         tokens: [],
         templateTokens: null,
@@ -200,6 +201,7 @@ export function EsignatureTemplateManager({
         description: t.description ?? "",
         tag: t.tag ?? "",
         isActive: t.isActive,
+        isRequired: !!t.isRequired,
         roles: [...mapping.roles, ...newRoles],
         templateTokens,
         tokens: [
@@ -235,6 +237,7 @@ export function EsignatureTemplateManager({
               description: editor.description || null,
               tag: editor.tag.trim() || null,
               isActive: editor.isActive,
+              isRequired: editor.isRequired,
               mapping,
             })
           : await updateEsignatureTemplate(editor.id!, {
@@ -242,6 +245,7 @@ export function EsignatureTemplateManager({
               description: editor.description || null,
               tag: editor.tag.trim() || null,
               isActive: editor.isActive,
+              isRequired: editor.isRequired,
               mapping,
             });
       if (!res.ok) {
@@ -387,6 +391,14 @@ export function EsignatureTemplateManager({
                 onChange={(e) => setEditor({ ...editor, isActive: e.target.checked })}
               />
               Active (offered on customer pages)
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={editor.isRequired}
+                onChange={(e) => setEditor({ ...editor, isRequired: e.target.checked })}
+              />
+              Required (every customer should complete it; listed first on customer pages)
             </label>
 
             {/* Roles */}
@@ -596,43 +608,12 @@ export function EsignatureTemplateManager({
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-2">
-          {templates.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No templates onboarded yet.</p>
-          ) : (
-            templates.map((t) => (
-              <div key={t.id} className="flex items-center gap-3 rounded-md border p-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium">{t.name}</span>
-                    {t.tag && (
-                      <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", tagBadgeClass(t.tag))}>
-                        {t.tag}
-                      </span>
-                    )}
-                    {!t.isActive && <Badge variant="secondary">Inactive</Badge>}
-                  </div>
-                  <div className="truncate text-xs text-muted-foreground">{t.externalTemplateId}</div>
-                </div>
-                {canManage && (
-                  <div className="ml-auto flex gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => openEdit(t)} disabled={pending} className="gap-1">
-                      <Pencil className="h-3.5 w-3.5" /> Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => remove(t)}
-                      className="gap-1 text-destructive"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-        </div>
+        <EsignatureTemplateOrderList
+          templates={templates}
+          canManage={canManage}
+          onEdit={openEdit}
+          onRemove={remove}
+        />
       )}
     </div>
   );

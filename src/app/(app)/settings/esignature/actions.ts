@@ -42,6 +42,7 @@ type TemplateInput = {
   description?: string | null;
   tag?: string | null;
   isActive: boolean;
+  isRequired: boolean;
   mapping: EsignatureTemplateMapping;
 };
 
@@ -78,5 +79,20 @@ export async function deleteEsignatureTemplate(id: number): Promise<EsignResult>
   if (!res) return { ok: false, error: "Network error." };
   if (!res.ok) return { ok: false, error: await readError(res, "Could not delete the template.") };
   revalidatePath("/settings/esignature");
+  return { ok: true };
+}
+
+/** Save the Settings drag order: every template id, first to last (required ones first). */
+export async function reorderEsignatureTemplates(templateIds: number[]): Promise<EsignResult> {
+  if (!(await isPrivileged())) return { ok: false, error: "Not authorized." };
+  const res = await apiFetch("/api/esignature-templates/order", {
+    method: "PUT",
+    body: JSON.stringify({ templateIds }),
+  }).catch(() => null);
+  if (!res) return { ok: false, error: "Network error." };
+  if (!res.ok) return { ok: false, error: await readError(res, "Could not save the order.") };
+  revalidatePath("/settings/esignature");
+  // Customer pages list templates in this order.
+  revalidatePath("/customers/[id]", "page");
   return { ok: true };
 }

@@ -371,6 +371,10 @@ export type EsignatureTemplate = {
   tag?: string | null;
   isActive: boolean;
   mappingJson: string;
+  /** Every customer is expected to complete it; listed first, as a checklist. */
+  isRequired?: boolean;
+  /** Admin drag order (lower first) within required / optional. */
+  sortOrder?: number;
   createdOn?: string | null;
   modifiedOn?: string | null;
 };

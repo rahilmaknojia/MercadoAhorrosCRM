@@ -84,3 +84,15 @@ export const ESIGN_CUSTOMER_FIELD_GROUPS = [
     ],
   },
 ] as const;
+
+/** Templates as customer pages list them: required first, then the admin's order, then name. */
+export function sortTemplatesForDisplay<T extends { isRequired?: boolean; sortOrder?: number; name: string }>(
+  templates: T[]
+): T[] {
+  return [...templates].sort(
+    (a, b) =>
+      Number(!!b.isRequired) - Number(!!a.isRequired) ||
+      (a.sortOrder ?? 0) - (b.sortOrder ?? 0) ||
+      a.name.localeCompare(b.name)
+  );
+}

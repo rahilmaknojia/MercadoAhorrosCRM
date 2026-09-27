@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EsignatureSendDialog } from "@/components/esignature-send-dialog";
 import { cn } from "@/lib/utils";
-import { tagBadgeClass } from "@/lib/esign";
+import { sortTemplatesForDisplay, tagBadgeClass } from "@/lib/esign";
 import { parseTemplateMapping, snapshotChipLabel } from "@/lib/esign-survey";
 import type {
   EsignatureDocument,
@@ -66,6 +66,22 @@ function isCompleted(doc: EsignatureDocument): boolean {
   return ["completed", "signed"].includes(doc.status.toLowerCase()) || doc.hasSignedPdf;
 }
 
+// Where this customer stands on one template: signed, out for signature, or not started. A
+// declined/voided/expired document doesn't count — the document still has to be done.
+type TemplateStatus = "completed" | "inProgress" | "notStarted";
+function templateStatus(template: EsignatureTemplate, documents: EsignatureDocument[]): TemplateStatus {
+  const docs = documents.filter((d) => d.esignatureTemplateId === template.id);
+  if (docs.some(isCompleted)) return "completed";
+  if (docs.some((d) => isSignable(d.status))) return "inProgress";
+  return "notStarted";
+}
+
+const STATUS_CHIP: Record<TemplateStatus, { label: string; className: string }> = {
+  completed: { label: "Completed", className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" },
+  inProgress: { label: "In progress", className: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
+  notStarted: { label: "Not started", className: "bg-muted text-muted-foreground" },
+};
+
 // Progress across the actual signers (CarbonCopy recipients don't sign, so they don't count).
 function signProgress(recipientsJson?: string | null): { signed: number; total: number } | null {
   if (!recipientsJson) return null;
@@ -109,6 +125,12 @@ export function CustomerESignature({
   const canDelete = useCan("customer_data:delete");
   const router = useRouter();
   const [session, setSession] = useState<ActiveSession | null>(null);
+  // The checklist: required templates first (numbered, in the admin's order), optional below.
+  const orderedTemplates = useMemo(() => sortTemplatesForDisplay(templates), [templates]);
+  const requiredTemplates = orderedTemplates.filter((t) => t.isRequired);
+  const optionalTemplates = orderedTemplates.filter((t) => !t.isRequired);
+  const requiredDone = requiredTemplates.filter((t) => templateStatus(t, documents) === "completed").length;
+
   // Signature-on-file, shared by the card and the in-person check so a capture in either shows in both.
   const [signature, setSignature] = useState<string | null>(initialSignature);
   const [activeTag, setActiveTag] = useState<string>(ALL_TAGS);
@@ -217,24 +239,64 @@ export function CustomerESignature({
         onSignatureChange={setSignature}
       />
 
-      {canSend && templates.length > 0 && (
+      {templates.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle>Send a document</CardTitle>
+          <CardHeader className="space-y-2">
+            <CardTitle>{requiredTemplates.length > 0 ? "Documents to complete" : "Send a document"}</CardTitle>
+            {requiredTemplates.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-sm text-muted-foreground">
+                  {requiredDone === requiredTemplates.length
+                    ? "All required documents are complete."
+                    : `${requiredDone} of ${requiredTemplates.length} required documents complete — work through them in order.`}
+                </p>
+                <div
+                  className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                  role="progressbar"
+                  aria-label="Required documents complete"
+                  aria-valuemin={0}
+                  aria-valuemax={requiredTemplates.length}
+                  aria-valuenow={requiredDone}
+                >
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-[width]"
+                    style={{ width: `${(requiredDone / requiredTemplates.length) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </CardHeader>
-          <CardContent className="space-y-3">
-            {templates.map((t) => (
-              <TemplateSender
-                key={t.id}
-                customerId={customerId}
-                template={t}
-                onSession={setSession}
-                currentUser={currentUser}
-                orgUsers={orgUsers}
-                signature={signature}
-                onSignatureChange={setSignature}
-              />
-            ))}
+          <CardContent className="space-y-5">
+            {[
+              { title: "Required", list: requiredTemplates, numbered: true },
+              { title: "Optional", list: optionalTemplates, numbered: false },
+            ]
+              .filter((s) => s.list.length > 0)
+              .map((s) => (
+                <div key={s.title} className="space-y-3">
+                  {/* Only label the sections when there is more than one kind. */}
+                  {requiredTemplates.length > 0 && optionalTemplates.length > 0 && (
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {s.title}
+                    </h3>
+                  )}
+                  {s.list.map((t, i) => (
+                    <TemplateSender
+                      key={t.id}
+                      customerId={customerId}
+                      template={t}
+                      step={s.numbered ? i + 1 : null}
+                      status={templateStatus(t, documents)}
+                      canSend={canSend}
+                      onSession={setSession}
+                      currentUser={currentUser}
+                      orgUsers={orgUsers}
+                      signature={signature}
+                      onSignatureChange={setSignature}
+                    />
+                  ))}
+                </div>
+              ))}
           </CardContent>
         </Card>
       )}
@@ -406,6 +468,9 @@ const CUSTOM_SIGNER = "__custom__";
 function TemplateSender({
   customerId,
   template,
+  step,
+  status,
+  canSend,
   onSession,
   currentUser,
   orgUsers,
@@ -414,6 +479,11 @@ function TemplateSender({
 }: {
   customerId: number;
   template: EsignatureTemplate;
+  /** Position in the required checklist (1-based); null for optional templates. */
+  step: number | null;
+  status: TemplateStatus;
+  /** Without send permission the row is a read-only checklist entry. */
+  canSend: boolean;
   onSession: (s: ActiveSession) => void;
   currentUser: Signer | null;
   orgUsers: Signer[];
@@ -570,9 +640,24 @@ function TemplateSender({
   }
 
   return (
-    <div className="rounded-md border p-3 space-y-2">
+    <div className={cn("rounded-md border p-3 space-y-2", status === "completed" && "border-emerald-500/30 bg-emerald-500/5")}>
       <div className="flex flex-wrap items-center gap-2">
+        {step !== null && (
+          <span
+            className={cn(
+              "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+              status === "completed" ? "bg-emerald-500 text-white" : "bg-primary/10 text-primary"
+            )}
+            aria-label={`Step ${step}`}
+          >
+            {status === "completed" ? "✓" : step}
+          </span>
+        )}
         <span className="text-sm font-medium">{template.name}</span>
+        <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", STATUS_CHIP[status].className)}>
+          {STATUS_CHIP[status].label}
+        </span>
+        {canSend && (
         <div className="ml-auto flex items-center gap-3">
           <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />
@@ -593,8 +678,9 @@ function TemplateSender({
             Send
           </Button>
         </div>
+        )}
       </div>
-      {roles.length > 0 && (
+      {canSend && roles.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-2">
           {roles.map((role) => (
             <div key={role.roleKey} className="space-y-1.5">
