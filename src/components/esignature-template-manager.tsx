@@ -50,12 +50,27 @@ const editorToken = (mapping: EsignatureMergeTokenMapping, custom = false): Edit
 /** The mapping as saved: drop settings that don't belong to the token's source. */
 function cleanToken(t: EsignatureMergeTokenMapping): EsignatureMergeTokenMapping {
   const out: EsignatureMergeTokenMapping = { ...t, token: t.token.trim() };
-  if (t.source !== "siteSurvey") {
-    delete out.format;
-    delete out.reviewSelection;
-  }
+  // A format also applies to a vendor "Selected (checkbox)" token.
+  const keepsFormat = t.source === "siteSurvey" || (t.source === "vendor" && t.property === "selected");
+  if (!keepsFormat) delete out.format;
+  if (t.source !== "siteSurvey") delete out.reviewSelection;
   return out;
 }
+
+/** Which vendor value a token reads: the account number (default), selected-ness, or a detail key. */
+function vendorPropertyKind(property?: string | null): "accountNumber" | "selected" | "detail" {
+  if (property == null || property === "accountNumber") return "accountNumber";
+  return property === "selected" ? "selected" : "detail";
+}
+
+// Outputs for a vendor checkbox token. Same keys as the Site Survey formats (the API validates
+// against that list); "Need / Do Not Need" is about cold equipment, so it is left out here.
+const FALLBACK_VENDOR_FORMATS = [
+  { key: "true_false", label: "true / false" },
+  { key: "x", label: "X / blank" },
+  { key: "check", label: "✓ / blank" },
+  { key: "yes_no", label: "Yes / No" },
+];
 
 type Editor = {
   mode: "add" | "edit";
@@ -87,6 +102,13 @@ export function EsignatureTemplateManager({
   const [available, setAvailable] = useState<EsignatureAvailableTemplate[] | null>(null);
   const [pending, startTransition] = useTransition();
   const [bulkGroup, setBulkGroup] = useState("");
+
+  // true / false first: it is the default and what a PDF checkbox needs.
+  const vendorFormats = useMemo(() => {
+    const fromApi = (surveyCatalog?.formats ?? []).filter((f) => f.key !== "need");
+    const list = fromApi.length > 0 ? fromApi : FALLBACK_VENDOR_FORMATS;
+    return [...list].sort((a, b) => Number(b.key === "true_false") - Number(a.key === "true_false"));
+  }, [surveyCatalog]);
 
   const vendors = useMemo(
     () => vendorGroups.flatMap((g) => g.vendors.map((v) => ({ code: v.code, name: v.name, group: g.groupName }))),
@@ -507,7 +529,7 @@ export function EsignatureTemplateManager({
                         onChange={(e) => changeSource(i, e.target.value as EsignatureMergeTokenMapping["source"])}
                       >
                         <option value="customer">Customer field</option>
-                        <option value="vendor">Vendor account</option>
+                        <option value="vendor">Vendor</option>
                         <option value="siteSurvey">Site survey</option>
                         <option value="storeMetadata">Store metadata</option>
                         <option value="literal">Fixed text</option>
@@ -557,13 +579,54 @@ export function EsignatureTemplateManager({
                           </select>
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium">Property</label>
-                          <Input
-                            placeholder="accountNumber"
-                            value={token.property ?? ""}
-                            onChange={(e) => patchToken(i, { property: e.target.value })}
-                          />
+                          <label className="text-xs font-medium">Value</label>
+                          <select
+                            className={`${selectClass} w-full`}
+                            value={vendorPropertyKind(token.property)}
+                            onChange={(e) => {
+                              const kind = e.target.value;
+                              patchToken(i, {
+                                property: kind === "accountNumber" ? "accountNumber" : kind === "selected" ? "selected" : "",
+                                format: undefined,
+                              });
+                            }}
+                          >
+                            <option value="accountNumber">Account number</option>
+                            <option value="selected">Selected (checkbox)</option>
+                            <option value="detail">Other detail…</option>
+                          </select>
                         </div>
+                        {vendorPropertyKind(token.property) === "selected" && (
+                          <div className="space-y-1 sm:col-span-2">
+                            <label className="text-xs font-medium">Output</label>
+                            <select
+                              className={`${selectClass} w-full`}
+                              value={token.format ?? "true_false"}
+                              onChange={(e) => patchToken(i, { format: e.target.value })}
+                            >
+                              {vendorFormats.map((f) => (
+                                <option key={f.key} value={f.key}>
+                                  {f.label}
+                                  {f.key === "true_false" ? " — ticks a PDF checkbox" : ""}
+                                </option>
+                              ))}
+                            </select>
+                            <p className="text-xs text-muted-foreground">
+                              Whether the customer has this vendor ticked on their Vendors tab (Preferred, Other or
+                              Ice Cream). For a checkbox field in the NinjaFlow template, keep “true / false”.
+                            </p>
+                          </div>
+                        )}
+                        {vendorPropertyKind(token.property) === "detail" && (
+                          <div className="space-y-1 sm:col-span-2">
+                            <label className="text-xs font-medium">Detail key</label>
+                            <Input
+                              placeholder="e.g. rep"
+                              value={token.property ?? ""}
+                              onChange={(e) => patchToken(i, { property: e.target.value })}
+                            />
+                          </div>
+                        )}
                       </div>
                     )}
                     {token.source === "storeMetadata" && (

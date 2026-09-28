@@ -299,7 +299,7 @@ export type EsignatureMergeTokenMapping = {
   property?: string; // vendor: accountNumber | json key
   path?: string; // storeMetadata dotted path
   value?: string; // literal
-  format?: string; // siteSurvey flag/answer fields: a SurveyFieldFormat key (omitted = field default)
+  format?: string; // siteSurvey flag/answer fields, and vendor "selected" tokens: a SurveyFieldFormat key (omitted = default)
   reviewSelection?: EsignatureReviewSelection; // siteSurvey compliance fields only (omitted = latest_submitted)
 };
 
