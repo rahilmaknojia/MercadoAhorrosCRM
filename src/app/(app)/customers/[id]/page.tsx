@@ -8,7 +8,6 @@ import { getSession } from "@/lib/server/auth";
 import { authApiFetch } from "@/lib/server/auth-api";
 import {
   type AdminUser,
-  type CoolerDocument,
   type Customer,
   type CustomerVendorSelectionGroup,
   type EsignatureDocument,
@@ -29,6 +28,8 @@ import { SiteSurveyTabs } from "@/components/site-survey/site-survey-tabs";
 import { CokeContractCard } from "@/components/site-survey/coke-contract-card";
 import { ComplianceReviewPanel } from "@/components/site-survey/compliance/compliance-review-panel";
 import type { ComplianceHistorySummary, ComplianceState } from "@/lib/compliance";
+import { getSiteSurvey } from "@/app/(app)/customers/[id]/site-survey-actions";
+import { SURVEY_OWNED_KEYS, type SurveyOverview } from "@/lib/site-survey";
 import { MemberTabs } from "@/components/member-tabs";
 import { BreadcrumbLabel } from "@/components/breadcrumb-context";
 import { CopyButton, CopyField } from "@/components/copy-field";
@@ -234,6 +235,7 @@ export default async function CustomerDetailPage({
     esignDocuments,
     neighbors,
     compliance,
+    siteSurvey,
   ] = await Promise.all([
     fetchArray<StoreMetadata>(`/api/storemetadata?filters=customerId|exact|${id}&pageSize=1`),
     fetchArray<CustomerVendorSelectionGroup>(`/api/customers/${id}/vendors`),
@@ -244,6 +246,7 @@ export default async function CustomerDetailPage({
     fetchArray<EsignatureDocument>(`/api/customers/${id}/esignature-documents`),
     fetchNeighbors(customer.id),
     fetchCompliance(customer.id),
+    getSiteSurvey(customer.id),
   ]);
 
   // Carry the active tab onto the prev/next links so stepping through members keeps you on the
@@ -263,7 +266,6 @@ export default async function CustomerDetailPage({
   // the raw view as a fallback for whatever is left, so nothing becomes invisible.
   let metaJson: string | null = null;
   let photoCaptions: Record<string, string> = {};
-  let coolerDoc: CoolerDocument = {};
   let customerSignature: string | null = null;
   let cokeContract: unknown = undefined;
   if (metadata[0]?.jsonData) {
@@ -272,19 +274,22 @@ export default async function CustomerDetailPage({
       photoCaptions = (parsed.__photoCaptions as Record<string, string>) ?? {};
       customerSignature = (parsed.__customerSignature as string) ?? null;
       cokeContract = parsed.coke_contract;
-      coolerDoc = {
-        coolers: parsed.coolers as CoolerDocument["coolers"],
-        shared_coolers: parsed.shared_coolers as CoolerDocument["shared_coolers"],
-        cold_vaults: parsed.cold_vaults as CoolerDocument["cold_vaults"],
-      };
       const rest: Record<string, unknown> = { ...parsed };
+      // Sections the site survey shares with other imported fields: hide only the survey's keys.
+      for (const [section, keys] of Object.entries(SURVEY_OWNED_KEYS)) {
+        const value = rest[section];
+        if (!value || typeof value !== "object") continue;
+        const left = Object.fromEntries(Object.entries(value).filter(([k]) => !keys.includes(k)));
+        if (Object.keys(left).length) rest[section] = left;
+        else delete rest[section];
+      }
       for (const key of [
         "__photoCaptions",
         "__customerSignature",
+        // Site Survey tab — the cooler survey and compliance keys are written only through their APIs.
         "coolers",
         "shared_coolers",
         "cold_vaults",
-        // Site Survey tab — the compliance keys are written only through the compliance API.
         "coke_contract",
         "compliance_review",
         "compliance_review_history",
@@ -494,7 +499,8 @@ export default async function CustomerDetailPage({
                 coolers={
                   <CustomerCoolers
                     customerId={customer.id}
-                    document={coolerDoc}
+                    initial={siteSurvey.ok ? siteSurvey.data : null}
+                    initialError={siteSurvey.ok ? null : siteSurvey.error}
                     brands={brands}
                     packages={packages}
                     sharedCoolers={sharedCoolers}

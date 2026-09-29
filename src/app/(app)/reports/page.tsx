@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Can } from "@/components/permissions-provider";
-import { BarChart3, Pin, Plus, Search } from "lucide-react";
+import { BarChart3, ClipboardCheck, Pin, Plus, Search } from "lucide-react";
 
 export default async function ReportsPage() {
   let presets: ReportPreset[] = [];
@@ -34,6 +34,9 @@ export default async function ReportsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/reports/site-surveys" className={buttonVariants({ variant: "outline" })}>
+            <ClipboardCheck /> Site survey scores
+          </Link>
           {/* Ad-hoc: run and export without saving. Gated on reports:export, not create,
               because exporting is what it actually does. */}
           <Can permission="reports:export">
