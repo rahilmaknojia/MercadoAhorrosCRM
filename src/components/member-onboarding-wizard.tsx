@@ -15,7 +15,6 @@ import {
   type VendorSelectionInput,
 } from "@/app/(app)/customers/[id]/vendor-actions";
 import { CustomerVendors } from "@/components/customer-vendors";
-import { CustomerPhotos } from "@/components/customer-photos";
 import { SignaturePad } from "@/components/signature-pad";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +23,8 @@ import { cn, formatPhone, formatFederalTaxId, formatSalesTaxId, isValidEmail } f
 import { US_STATES, DEFAULT_STATE_CODE } from "@/lib/us-states";
 import type { CustomerVendorSelectionGroup } from "@/lib/types";
 
-const STEPS = ["Member", "Store", "Vendors", "Photos", "Signature"] as const;
+// Photos aren't part of onboarding — they're added from the member record once it exists.
+const STEPS = ["Member", "Store", "Vendors", "Signature"] as const;
 
 const selectClass =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -188,25 +188,6 @@ export function MemberOnboardingWizard({
             <CreatingNotice />
           ))}
         {step === 3 &&
-          (created ? (
-            <OptionalSection
-              title="Photos"
-              hint="Upload storefront, shelf, or document photos. Optional."
-            >
-              {created.memberId ? (
-                <CustomerPhotos memberId={created.memberId} customerId={created.id} />
-              ) : (
-                <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                  Photos can be added once this member is approved — the MA number (used to file
-                  photos) is assigned on approval. Approve the member, then add photos from its
-                  Photos tab.
-                </div>
-              )}
-            </OptionalSection>
-          ) : (
-            <CreatingNotice />
-          ))}
-        {step === 4 &&
           (created ? (
             <OptionalSection
               title="Customer signature"

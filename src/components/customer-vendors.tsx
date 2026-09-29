@@ -93,7 +93,9 @@ export function CustomerVendors({
     });
 
     const vendor = group.vendors.find((v) => v.vendorId === vendorId);
+    // Onboarding skips the prompt — the inline field is there if the number is known.
     if (
+      !embedded &&
       checked &&
       vendor &&
       vendor.code !== NOT_APPLICABLE_CODE &&
