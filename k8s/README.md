@@ -44,7 +44,7 @@ so SES is optional for the CRM to run.
 # Variables (edit these)
 $Registry = "registry.digitalocean.com/edi"
 $Image    = "mercado-crm"
-$Version  = "1.0.41"          # or: (Get-Date -Format "yyyy.MM.dd.HHmm")
+$Version  = "1.0.42"          # or: (Get-Date -Format "yyyy.MM.dd.HHmm")
 $Tag      =  $Registry + "/" + $Image + ":" + $Version
 
 # Build with BuildKit enabled
@@ -68,7 +68,7 @@ PROD
 # Variables (edit these)
 $Registry = "registry.digitalocean.com/edi"
 $Image    = "mercado-crm"
-$Version  = "1.0.5"          # or: (Get-Date -Format "yyyy.MM.dd.HHmm")
+$Version  = "1.0.6"          # or: (Get-Date -Format "yyyy.MM.dd.HHmm")
 $Tag      =  $Registry + "/" + $Image + ":prod-" + $Version
 
 # Build with BuildKit enabled

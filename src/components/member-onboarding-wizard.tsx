@@ -10,6 +10,10 @@ import {
   saveCustomerSignature,
   type OnboardingMemberInput,
 } from "@/app/(app)/customers/onboard/actions";
+import {
+  setCustomerVendors,
+  type VendorSelectionInput,
+} from "@/app/(app)/customers/[id]/vendor-actions";
 import { CustomerVendors } from "@/components/customer-vendors";
 import { CustomerPhotos } from "@/components/customer-photos";
 import { SignaturePad } from "@/components/signature-pad";
@@ -42,6 +46,8 @@ export function MemberOnboardingWizard({
   const [mailingSameAsStore, setMailingSameAsStore] = useState(true);
   const [created, setCreated] = useState<{ id: number; memberId: string | null } | null>(null);
   const [vendorGroups, setVendorGroups] = useState<CustomerVendorSelectionGroup[]>([]);
+  // Unsaved edits from the Vendors step (null = untouched); saved when leaving the step.
+  const [vendorEdits, setVendorEdits] = useState<VendorSelectionInput[] | null>(null);
   const [signatureSaved, setSignatureSaved] = useState(false);
   const [savingSig, setSavingSig] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -93,6 +99,23 @@ export function MemberOnboardingWizard({
             : "Member created — awaiting approval",
         );
         setStep(2);
+      });
+      return;
+    }
+
+    if (step === 2 && created && vendorEdits) {
+      startTransition(async () => {
+        const res = await setCustomerVendors(created.id, vendorEdits);
+        if (!res.ok) {
+          toast.error(res.error ?? "Failed to save vendors.");
+          return;
+        }
+        // Reload so returning to this step shows what's stored.
+        const groups = await fetchVendorGroups(created.id);
+        if (groups.ok) setVendorGroups(groups.data);
+        setVendorEdits(null);
+        toast.success("Vendors saved.");
+        setStep(3);
       });
       return;
     }
@@ -152,7 +175,11 @@ export function MemberOnboardingWizard({
               hint="Select the vendors this store carries and record their account numbers. Optional — you can skip and add these later."
             >
               {vendorGroups.length > 0 ? (
-                <CustomerVendors customerId={created.id} groups={vendorGroups} />
+                <CustomerVendors
+                  customerId={created.id}
+                  groups={vendorGroups}
+                  onSelectionsChange={setVendorEdits}
+                />
               ) : (
                 <p className="text-sm text-muted-foreground">No vendor catalogue is available.</p>
               )}

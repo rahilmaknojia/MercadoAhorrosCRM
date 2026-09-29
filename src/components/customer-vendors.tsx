@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { setCustomerVendors } from "@/app/(app)/customers/[id]/vendor-actions";
+import {
+  setCustomerVendors,
+  type VendorSelectionInput,
+} from "@/app/(app)/customers/[id]/vendor-actions";
 import { CopyAccountNumber } from "@/components/copy-field";
 import { useCan } from "@/components/permissions-provider";
 import { Button } from "@/components/ui/button";
@@ -36,13 +39,21 @@ const PROMPTING_GROUP = "Preferred Vendors";
 export function CustomerVendors({
   customerId,
   groups,
+  onSelectionsChange,
 }: {
   customerId: number;
   groups: CustomerVendorSelectionGroup[];
+  /**
+   * Embedded mode (the onboarding wizard): the card is always editable, hides its own
+   * Save/Cancel, and reports every change here so the host saves on its own "Next".
+   */
+  onSelectionsChange?: (selections: VendorSelectionInput[]) => void;
 }) {
+  const embedded = !!onSelectionsChange;
   const canEdit = useCan("customer_data:update");
   const [pending, startTransition] = useTransition();
-  const [editing, setEditing] = useState(false);
+  const [editingState, setEditing] = useState(false);
+  const editing = embedded || editingState;
   // Off by default so the card reads as "what this store uses"; on reveals the full roster.
   const [showUnselected, setShowUnselected] = useState(false);
   const initial = () =>
@@ -96,16 +107,29 @@ export function CustomerVendors({
     setAccounts((prev) => new Map(prev).set(vendorId, value));
   }
 
+  // Send an accountNumber for every selected vendor — "" clears a value the user emptied.
+  const toSelections = (): VendorSelectionInput[] =>
+    [...selected].map((vendorId) => ({
+      vendorId,
+      accountNumber: accounts.get(vendorId)?.trim() ?? "",
+    }));
+
+  // Embedded: keep the host's copy current so its "Next" saves exactly what's on screen.
+  const skipFirstReport = useRef(true);
+  useEffect(() => {
+    if (!onSelectionsChange) return;
+    // The initial state is what's already stored — only report real edits.
+    if (skipFirstReport.current) {
+      skipFirstReport.current = false;
+      return;
+    }
+    onSelectionsChange(toSelections());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, accounts]);
+
   function save() {
     startTransition(async () => {
-      // Send an accountNumber for every selected vendor — "" clears a value the user emptied.
-      const res = await setCustomerVendors(
-        customerId,
-        [...selected].map((vendorId) => ({
-          vendorId,
-          accountNumber: accounts.get(vendorId)?.trim() ?? "",
-        }))
-      );
+      const res = await setCustomerVendors(customerId, toSelections());
       if (res.ok) {
         toast.success("Vendors saved.");
         setEditing(false);
@@ -143,7 +167,7 @@ export function CustomerVendors({
             {totalSelected === 0 ? "None recorded" : `${totalSelected} selected`}
           </p>
         </div>
-        {editing ? (
+        {embedded ? null : editing ? (
           <div className="flex gap-2">
             <Button size="sm" variant="ghost" onClick={cancel} disabled={pending}>
               <X /> Cancel
