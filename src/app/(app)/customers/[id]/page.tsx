@@ -231,6 +231,7 @@ export default async function CustomerDetailPage({
     brands,
     packages,
     sharedCoolers,
+    zoneManagers,
     esignTemplates,
     esignDocuments,
     neighbors,
@@ -242,6 +243,7 @@ export default async function CustomerDetailPage({
     fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=coolerBrand`),
     fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=coolerPackage`),
     fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=sharedCooler`),
+    fetchArray<MasterDataItem>(`/api/masterdata/by-type?type=zoneManager`),
     fetchArray<EsignatureTemplate>(`/api/esignature-templates/active`),
     fetchArray<EsignatureDocument>(`/api/customers/${id}/esignature-documents`),
     fetchNeighbors(customer.id),
@@ -504,6 +506,7 @@ export default async function CustomerDetailPage({
                     brands={brands}
                     packages={packages}
                     sharedCoolers={sharedCoolers}
+                    zoneManagers={zoneManagers}
                   />
                 }
                 coke={<CokeContractCard customerId={customer.id} contract={cokeContract} />}

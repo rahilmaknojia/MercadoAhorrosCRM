@@ -20,7 +20,9 @@ import { cn } from "@/lib/utils";
 export function versionByline(e: SurveyVersionSummary): string {
   if (e.source === "baseline") return "Data on file before survey history began";
   if (e.status === "submitted") {
-    return `Submitted${e.submittedBy ? ` by ${e.submittedBy}` : ""}${e.submittedOn ? ` on ${formatSurveyDate(e.submittedOn)}` : ""}`;
+    const by = e.submittedBy ? ` by ${e.submittedBy}` : "";
+    const zm = e.zoneManagerName ? (e.onBehalf ? ` on behalf of ${e.zoneManagerName}` : ` (zone manager)`) : "";
+    return `Submitted${by}${zm}${e.submittedOn ? ` on ${formatSurveyDate(e.submittedOn)}` : ""}`;
   }
   const by = e.modifiedBy ?? e.createdBy;
   const on = e.modifiedOn ?? e.createdOn;

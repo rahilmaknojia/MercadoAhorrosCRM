@@ -41,6 +41,10 @@ export type MasterDataItem = {
   createdOn?: string;
   createdBy?: string;
   modifiedOn?: string | null;
+  /** Zone managers only: the user who is this zone manager (auth-service id), with name/email as linked. */
+  linkedUserId?: string | null;
+  linkedUserName?: string | null;
+  linkedUserEmail?: string | null;
 };
 
 // Territory lookups. type = API master-data type; field = the matching Customer string field.

@@ -41,7 +41,7 @@ async function failure<T>(res: Response | null, fallback: string): Promise<Surve
     };
   }
   if (res.status === 403) {
-    return { ok: false, status: 403, error: "You do not have permission to edit site surveys." };
+    return { ok: false, status: 403, error: body?.message ?? "You do not have permission to edit site surveys." };
   }
   if (res.status === 404) return { ok: false, status: 404, error: body?.message ?? "Not found." };
   const errors = body?.errors ? Object.values(body.errors).flat() : [];
@@ -83,15 +83,17 @@ export async function saveSiteSurveyDraft(
   return { ok: true, data: (await res.json()) as SurveyVersion };
 }
 
+/** `zoneManagerId` credits a zone manager other than the default (owner/admin only; 403 otherwise). */
 export async function submitSiteSurvey(
   customerId: number,
   expectedVersion: number | null,
-  survey: SiteSurvey
+  survey: SiteSurvey,
+  zoneManagerId: number | null = null
 ): Promise<SurveyResult<SurveyVersion>> {
   if (!validId(customerId)) return { ok: false, status: null, error: "Missing customer." };
   const res = await apiFetch(`${base(customerId)}/submit`, {
     method: "POST",
-    body: JSON.stringify({ expectedVersion, survey }),
+    body: JSON.stringify({ expectedVersion, survey, zoneManagerId }),
   }).catch(() => null);
   if (!res?.ok) return failure(res, "Could not submit the site survey.");
   revalidatePath(`/customers/${customerId}`);

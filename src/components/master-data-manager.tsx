@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { MANAGED_MASTER_DATA_TYPES, type MasterDataItem } from "@/lib/types";
+import { MANAGED_MASTER_DATA_TYPES, type AdminUser, type MasterDataItem } from "@/lib/types";
 import {
   createMasterDataItem,
   deleteMasterDataItem,
@@ -10,6 +10,7 @@ import {
   updateMasterDataItem,
 } from "@/app/(app)/settings/master-data/actions";
 import { useCan } from "@/components/permissions-provider";
+import { ZoneManagerControls } from "@/components/zone-manager-controls";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Plus, Trash2 } from "lucide-react";
@@ -17,7 +18,14 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 const selectClass =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
-export function MasterDataManager({ itemsByType }: { itemsByType: Record<string, MasterDataItem[]> }) {
+export function MasterDataManager({
+  itemsByType,
+  users = [],
+}: {
+  itemsByType: Record<string, MasterDataItem[]>;
+  /** Users a zone manager can be linked to (empty for non-admins). */
+  users?: AdminUser[];
+}) {
   const canManage = useCan("master_data:manage");
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -28,6 +36,7 @@ export function MasterDataManager({ itemsByType }: { itemsByType: Record<string,
           label={label}
           items={itemsByType[type] ?? []}
           canManage={canManage}
+          users={users}
         />
       ))}
     </div>
@@ -39,11 +48,13 @@ function TypeSection({
   label,
   items,
   canManage,
+  users,
 }: {
   type: string;
   label: string;
   items: MasterDataItem[];
   canManage: boolean;
+  users: AdminUser[];
 }) {
   const [name, setName] = useState("");
   const [adding, startAdd] = useTransition();
@@ -96,7 +107,18 @@ function TypeSection({
           <p className="px-4 py-3 text-sm text-muted-foreground">None yet.</p>
         ) : (
           items.map((item) => (
-            <Row key={item.id} item={item} siblings={items} canManage={canManage} label={label} />
+            <Row
+              key={item.id}
+              item={item}
+              siblings={items}
+              canManage={canManage}
+              label={label}
+              extra={
+                type === "zoneManager" ? (
+                  <ZoneManagerControls item={item} siblings={items} users={users} canManage={canManage} />
+                ) : undefined
+              }
+            />
           ))
         )}
       </div>
@@ -109,11 +131,14 @@ function Row({
   siblings,
   canManage,
   label,
+  extra,
 }: {
   item: MasterDataItem;
   siblings: MasterDataItem[];
   canManage: boolean;
   label: string;
+  /** Type-specific controls under the row (zone managers: linked user, transfer). */
+  extra?: React.ReactNode;
 }) {
   const [name, setName] = useState(item.name);
   const [pending, start] = useTransition();
@@ -155,8 +180,9 @@ function Row({
 
   if (!canManage) {
     return (
-      <div className="px-4 py-2 text-sm">
+      <div className="space-y-1 px-4 py-2 text-sm">
         <span className={item.isActive ? "" : "text-muted-foreground line-through"}>{item.name}</span>
+        {extra}
       </div>
     );
   }
@@ -206,6 +232,7 @@ function Row({
       <Button size="sm" variant="ghost" onClick={remove} disabled={pending} aria-label="Delete">
         <Trash2 className="size-4" />
       </Button>
+      {extra}
     </div>
   );
 }

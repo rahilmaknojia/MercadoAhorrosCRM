@@ -26,22 +26,27 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  CATEGORY_FIELDS,
+  CATEGORY_COLUMNS,
+  changedIds,
+  COLD_VAULT_COLUMNS,
   coldVaultTotal,
-  DOOR_FIELDS,
+  doorParts,
   fieldId,
   formatCount,
   formatSurveyDate,
   fromForm,
   labelOf,
-  SHELF_FIELDS,
+  sanitizeCount,
   SPACE_PAYMENT_OPTIONS,
   toForm,
-  YES_FLAGS,
+  yesNoLabel,
+  type ColdVaultItem,
   type NumberField,
+  type YesNo,
   type SurveyForm,
   type SurveyOverview,
 } from "@/lib/site-survey";
+import { cn } from "@/lib/utils";
 import { COOLER_TYPES, type CoolerRow, type CoolerTypeKey, type MasterDataItem } from "@/lib/types";
 
 const selectClass =
@@ -64,6 +69,7 @@ export function CustomerCoolers({
   brands,
   packages,
   sharedCoolers,
+  zoneManagers = [],
 }: {
   customerId: number;
   initial: SurveyOverview | null;
@@ -71,12 +77,19 @@ export function CustomerCoolers({
   brands: MasterDataItem[];
   packages: MasterDataItem[];
   sharedCoolers: MasterDataItem[];
+  /** Active zone managers, for submitting on behalf of one (owner/admin). */
+  zoneManagers?: MasterDataItem[];
 }) {
   const canEdit = useCan("customer_data:update");
+  // Owner/Admin may credit a survey to another zone manager (submit on their behalf).
+  const canCreditOthers = useCan("site_surveys:transfer");
+  const [creditTo, setCreditTo] = useState("");
   const [overview, setOverview] = useState<SurveyOverview | null>(initial);
   const [loadError, setLoadError] = useState<string | null>(initialError);
   const [form, setForm] = useState<SurveyForm>(() => toForm(initial?.draft?.survey ?? initial?.live ?? {}));
   const [editing, setEditing] = useState(false);
+  // Where the current edit started, to mark fields that have changed since.
+  const [startForm, setStartForm] = useState<SurveyForm | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [retrying, startRetry] = useTransition();
   const [confirm, setConfirm] = useState<"submit" | "discard" | null>(null);
@@ -121,7 +134,9 @@ export function CustomerCoolers({
   }
 
   function startEditing() {
-    setForm(toForm(draft?.survey ?? overview!.live));
+    const start = toForm(draft?.survey ?? overview!.live);
+    setForm(start);
+    setStartForm(start);
     setEditing(true);
   }
 
@@ -153,7 +168,9 @@ export function CustomerCoolers({
       return void toast.error(built.errors.join(" "));
     }
     setBusy("submit");
-    const res = await submitSiteSurvey(customerId, overview!.headVersion, built.survey);
+    const defaultId = overview!.defaultZoneManager?.id;
+    const chosen = canCreditOthers && creditTo && Number(creditTo) !== defaultId ? Number(creditTo) : null;
+    const res = await submitSiteSurvey(customerId, overview!.headVersion, built.survey, chosen);
     setBusy(null);
     setConfirm(null);
     if (!res.ok) return handleConflict(res);
@@ -176,7 +193,86 @@ export function CustomerCoolers({
 
   const nextVersion = draft?.summary.version ?? (overview.headVersion ?? 0) + 1;
   const total = coldVaultTotal(shown);
+  const parts = doorParts(shown);
   const setNumber = (id: string, value: string) => setForm((f) => ({ ...f, numbers: { ...f.numbers, [id]: value } }));
+  const changed = editing && startForm ? changedIds(startForm, form) : new Set<string>();
+
+  /** One cell of the legacy Cold Vaults grid. */
+  function renderColdVaultItem(item: ColdVaultItem) {
+    switch (item.kind) {
+      case "modified":
+        return (
+          <ReadOnlyField
+            key="modified"
+            label="Cooler Modified On"
+            value={formatSurveyDate(overview!.coolerModifiedOn)}
+            hint="Set automatically when a submitted survey changes the cold vault, shelf or store fields."
+          />
+        );
+      case "total":
+        return (
+          <ReadOnlyField
+            key="total"
+            label="# of Cold Vault Doors"
+            value={formatCount(total)}
+            hint="Calculated: Carb + Non-Carb + Store Options + Beer doors."
+            detail={parts.length > 1 ? parts.join(" + ") : undefined}
+            emphasis
+          />
+        );
+      case "number":
+        return (
+          <NumberInput
+            key={fieldId(item.field)}
+            field={item.field}
+            form={shown}
+            editing={editing}
+            disabled={pending}
+            changed={changed.has(fieldId(item.field))}
+            onChange={setNumber}
+          />
+        );
+      case "yesno": {
+        const value = shown.yesNo[item.key];
+        return editing ? (
+          <SelectInput
+            key={item.key}
+            id={item.key}
+            label={item.label}
+            value={value}
+            disabled={pending}
+            changed={changed.has(`flags.${item.key}`)}
+            options={[
+              { value: "yes", label: "Yes" },
+              { value: "no", label: "No" },
+            ]}
+            onChange={(v) => setForm((f) => ({ ...f, yesNo: { ...f.yesNo, [item.key]: v as YesNo | "" } }))}
+          />
+        ) : (
+          <ReadOnlyField key={item.key} label={item.label} value={yesNoLabel(value)} />
+        );
+      }
+      case "spacePayment": {
+        const options: string[] = [...SPACE_PAYMENT_OPTIONS];
+        // Keep an unexpected legacy value selectable rather than silently dropping it.
+        if (shown.spacePayment && !options.includes(shown.spacePayment)) options.push(shown.spacePayment);
+        return editing ? (
+          <SelectInput
+            key="space_payment_eligible"
+            id="space_payment_eligible"
+            label="Space Payment Eligible"
+            value={shown.spacePayment}
+            disabled={pending}
+            changed={changed.has("flags.space_payment_eligible")}
+            options={options.map((o) => ({ value: o, label: o }))}
+            onChange={(v) => setForm((f) => ({ ...f, spacePayment: v }))}
+          />
+        ) : (
+          <ReadOnlyField key="space_payment_eligible" label="Space Payment Eligible" value={shown.spacePayment} />
+        );
+      }
+    }
+  }
 
   return (
     <>
@@ -202,14 +298,26 @@ export function CustomerCoolers({
           </div>
           {canEdit &&
             (editing ? (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground" aria-live="polite">
+                  {changed.size === 0
+                    ? "No changes yet"
+                    : `${changed.size} unsaved change${changed.size === 1 ? "" : "s"}`}
+                </span>
                 <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={pending}>
                   <X /> Cancel
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => void saveDraft()} disabled={pending}>
                   {busy === "draft" ? <Loader2 className="animate-spin" /> : <Save />} Save draft
                 </Button>
-                <Button size="sm" onClick={() => setConfirm("submit")} disabled={pending}>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setCreditTo(String(overview.defaultZoneManager?.id ?? ""));
+                    setConfirm("submit");
+                  }}
+                  disabled={pending}
+                >
                   <Send /> Submit
                 </Button>
               </div>
@@ -232,7 +340,7 @@ export function CustomerCoolers({
           {COOLER_TYPES.map(({ key, label }) => {
             const typeRows = shown.rows.filter((r) => r.coolerType === key);
             return (
-              <Row key={key} title={label}>
+              <Row key={key} title={label} changed={changed.has(`coolers.${key}`)}>
                 {editing ? (
                   <div className="space-y-1.5">
                     {typeRows.map((row, i) => (
@@ -299,7 +407,11 @@ export function CustomerCoolers({
           })}
 
           {/* ---- shared coolers ---- */}
-          <Row title="Shared coolers" divided>
+          <Row
+            title="Shared Cooler Combination"
+            divided
+            changed={changed.has("shared_coolers") || changed.has("shared_notes")}
+          >
             {editing ? (
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 md:grid-cols-3">
@@ -349,85 +461,37 @@ export function CustomerCoolers({
             )}
           </Row>
 
-          {/* ---- cold vaults ---- */}
-          <Row title="Cold vaults" divided>
-            <FieldGrid>
-              <ReadOnlyField
-                label="Cooler Modified On"
-                value={formatSurveyDate(overview.coolerModifiedOn)}
-                hint="Set automatically when a submitted survey changes the cold vault, shelf, facing or store fields."
-              />
-              <ReadOnlyField
-                label="# of Cold Vault Doors"
-                value={formatCount(total)}
-                hint="Calculated: Carb + Non-Carb + Store Options + Beer doors."
-              />
-              {DOOR_FIELDS.map((f) => (
-                <NumberInput key={fieldId(f)} field={f} form={shown} editing={editing} disabled={pending} onChange={setNumber} />
-              ))}
-            </FieldGrid>
-          </Row>
-
-          {/* ---- shelves & facings ---- */}
-          <Row title="Shelves & facings" divided>
-            <FieldGrid>
-              {SHELF_FIELDS.map((f) => (
-                <NumberInput key={fieldId(f)} field={f} form={shown} editing={editing} disabled={pending} onChange={setNumber} />
-              ))}
-            </FieldGrid>
-          </Row>
-
-          {/* ---- store ---- */}
-          <Row title="Store" divided>
-            <FieldGrid>
-              {YES_FLAGS.map(({ key, label }) =>
-                editing ? (
-                  <label key={key} className="flex items-center gap-2 self-end pb-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="size-4"
-                      checked={form.flags[key]}
-                      disabled={pending}
-                      onChange={(e) => setForm((f) => ({ ...f, flags: { ...f.flags, [key]: e.target.checked } }))}
-                    />
-                    {label}
-                  </label>
-                ) : (
-                  <ReadOnlyField key={key} label={label} value={shown.flags[key] ? "Yes" : ""} />
-                )
-              )}
-              {editing ? (
-                <div className="space-y-1">
-                  <Label htmlFor="space_payment_eligible">Space Payment Eligible</Label>
-                  <select
-                    id="space_payment_eligible"
-                    className={selectClass}
-                    value={form.spacePayment}
-                    disabled={pending}
-                    onChange={(e) => setForm((f) => ({ ...f, spacePayment: e.target.value }))}
-                  >
-                    <option value="">—</option>
-                    {SPACE_PAYMENT_OPTIONS.map((o) => (
-                      <option key={o} value={o}>
-                        {o}
-                      </option>
-                    ))}
-                  </select>
+          {/* ---- cold vaults: the legacy fieldset, column by column ---- */}
+          <Fieldset title="Cold Vaults">
+            <div className="grid gap-x-6 gap-y-3 md:grid-cols-3">
+              {COLD_VAULT_COLUMNS.map((column, i) => (
+                <div key={i} className="space-y-3">
+                  {column.map(renderColdVaultItem)}
                 </div>
-              ) : (
-                <ReadOnlyField label="Space Payment Eligible" value={shown.spacePayment} />
-              )}
-            </FieldGrid>
-          </Row>
+              ))}
+            </div>
+          </Fieldset>
 
           {/* ---- shelves by category ---- */}
-          <Row title="Shelves by category" divided>
-            <FieldGrid>
-              {CATEGORY_FIELDS.map((f) => (
-                <NumberInput key={fieldId(f)} field={f} form={shown} editing={editing} disabled={pending} onChange={setNumber} />
+          <Fieldset title="Shelves by category">
+            <div className="grid gap-x-6 gap-y-3 md:grid-cols-3">
+              {CATEGORY_COLUMNS.map((column, i) => (
+                <div key={i} className="space-y-3">
+                  {column.map((f) => (
+                    <NumberInput
+                      key={fieldId(f)}
+                      field={f}
+                      form={shown}
+                      editing={editing}
+                      disabled={pending}
+                      changed={changed.has(fieldId(f))}
+                      onChange={setNumber}
+                    />
+                  ))}
+                </div>
               ))}
-            </FieldGrid>
-          </Row>
+            </div>
+          </Fieldset>
         </CardContent>
       </Card>
 
@@ -450,6 +514,14 @@ export function CustomerCoolers({
               This saves a new version to the history and updates the member&apos;s cooler and cold vault data.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <ZoneManagerCredit
+            canChoose={canCreditOthers}
+            value={creditTo}
+            onChange={setCreditTo}
+            defaultZoneManager={overview.defaultZoneManager}
+            zoneManagers={zoneManagers}
+            disabled={busy === "submit"}
+          />
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="ghost" disabled={busy === "submit"} />}>Keep editing</AlertDialogClose>
             <Button onClick={() => void submit()} disabled={busy === "submit"}>
@@ -479,21 +551,45 @@ export function CustomerCoolers({
   );
 }
 
-function Row({ title, divided, children }: { title: string; divided?: boolean; children: React.ReactNode }) {
+function Row({
+  title,
+  divided,
+  changed,
+  children,
+}: {
+  title: string;
+  divided?: boolean;
+  changed?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <div className={`grid gap-2 sm:grid-cols-[160px_1fr] ${divided ? "border-t border-border pt-4" : ""}`}>
-      <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
+    <div className={cn("grid gap-2 sm:grid-cols-[180px_1fr]", divided && "border-t border-border pt-4")}>
+      <h3 className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+        {title}
+        {changed && <ChangedDot />}
+      </h3>
       <div>{children}</div>
     </div>
   );
 }
 
-function FieldGrid({ children }: { children: React.ReactNode }) {
-  return <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">{children}</div>;
+/** A titled group, like the legacy page's fieldsets. */
+function Fieldset({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3 border-t border-border pt-4">
+      <h3 className="text-sm font-semibold">{title}</h3>
+      {children}
+    </section>
+  );
 }
 
 function Empty() {
   return <p className="text-sm text-muted-foreground">—</p>;
+}
+
+/** Marks a field edited since "Edit" was pressed. */
+function ChangedDot() {
+  return <span className="size-1.5 rounded-full bg-brand" aria-label="changed" title="Changed" />;
 }
 
 function HintIcon({ hint }: { hint: string }) {
@@ -504,49 +600,133 @@ function HintIcon({ hint }: { hint: string }) {
   );
 }
 
-function ReadOnlyField({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function FieldLabel({
+  htmlFor,
+  label,
+  hint,
+  changed,
+}: {
+  htmlFor?: string;
+  label: string;
+  hint?: string;
+  changed?: boolean;
+}) {
+  return (
+    <Label htmlFor={htmlFor} className="flex items-center gap-1 text-xs font-medium">
+      {label}
+      {hint && <HintIcon hint={hint} />}
+      {changed && <ChangedDot />}
+    </Label>
+  );
+}
+
+function ReadOnlyField({
+  label,
+  value,
+  hint,
+  detail,
+  emphasis,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  /** A second line, e.g. how a calculated value was made up. */
+  detail?: string;
+  /** Calculated values sit in a tinted box, like legacy's greyed read-only input. */
+  emphasis?: boolean;
+}) {
   return (
     <div className="space-y-1">
-      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+      <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
         {label}
         {hint && <HintIcon hint={hint} />}
       </div>
-      <div className="text-sm font-medium tabular-nums">{value || "—"}</div>
+      <div
+        className={cn(
+          "text-sm font-medium tabular-nums",
+          emphasis && "flex h-9 items-center justify-between rounded-md bg-muted px-3"
+        )}
+        aria-live={emphasis ? "polite" : undefined}
+      >
+        <span>{value || "—"}</span>
+        {detail && <span className="text-xs font-normal text-muted-foreground">= {detail}</span>}
+      </div>
     </div>
   );
 }
+
+const changedInput = "border-brand/60 bg-brand/5";
 
 function NumberInput({
   field,
   form,
   editing,
   disabled,
+  changed,
   onChange,
 }: {
   field: NumberField;
   form: SurveyForm;
   editing: boolean;
   disabled: boolean;
+  changed: boolean;
   onChange: (id: string, value: string) => void;
 }) {
   const id = fieldId(field);
   if (!editing) return <ReadOnlyField label={field.label} value={form.numbers[id] ?? ""} hint={field.hint} />;
   return (
     <div className="space-y-1">
-      <Label htmlFor={id} className="flex items-center gap-1">
-        {field.label}
-        {field.hint && <HintIcon hint={field.hint} />}
-      </Label>
+      <FieldLabel htmlFor={id} label={field.label} hint={field.hint} changed={changed} />
+      {/* Text + inputMode rather than type=number: the value is filtered as typed (like legacy's
+          keyup filter), and every edit - typing, paste, clearing - updates the door total. */}
       <Input
         id={id}
-        type="number"
-        min={0}
-        step={field.whole ? 1 : 0.01}
+        type="text"
         inputMode={field.whole ? "numeric" : "decimal"}
+        autoComplete="off"
         value={form.numbers[id] ?? ""}
         disabled={disabled}
-        onChange={(e) => onChange(id, e.target.value)}
+        className={cn("tabular-nums", changed && changedInput)}
+        onChange={(e) => onChange(id, sanitizeCount(e.target.value, field.whole))}
       />
+    </div>
+  );
+}
+
+function SelectInput({
+  id,
+  label,
+  value,
+  options,
+  disabled,
+  changed,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  disabled: boolean;
+  changed: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <FieldLabel htmlFor={id} label={label} changed={changed} />
+      <select
+        id={id}
+        className={cn(selectClass, changed && changedInput)}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">-- Select --</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -622,5 +802,64 @@ function CatalogueSelect({
         </option>
       ))}
     </select>
+  );
+}
+
+/**
+ * Which zone manager the submitted survey counts for. Everyone sees it; owners/admins can pick a
+ * different zone manager, which submits on their behalf (e.g. they're away or have left).
+ */
+function ZoneManagerCredit({
+  canChoose,
+  value,
+  onChange,
+  defaultZoneManager,
+  zoneManagers,
+  disabled,
+}: {
+  canChoose: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  defaultZoneManager: { id: number; name: string } | null;
+  zoneManagers: MasterDataItem[];
+  disabled: boolean;
+}) {
+  if (!canChoose) {
+    return (
+      <p className="text-sm">
+        <span className="text-muted-foreground">Counts for zone manager: </span>
+        <span className="font-medium">{defaultZoneManager?.name ?? "none assigned"}</span>
+      </p>
+    );
+  }
+
+  const options = zoneManagers.filter((z) => z.isActive || String(z.id) === value);
+  const onBehalf = value !== "" && Number(value) !== defaultZoneManager?.id;
+  const chosen = zoneManagers.find((z) => String(z.id) === value);
+  return (
+    <div className="space-y-1">
+      <Label htmlFor="credit-zone-manager">Counts for zone manager</Label>
+      <select
+        id="credit-zone-manager"
+        className={selectClass}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {!defaultZoneManager && <option value="">None assigned</option>}
+        {options.map((z) => (
+          <option key={z.id} value={z.id}>
+            {z.name}
+            {z.id === defaultZoneManager?.id ? " (default)" : ""}
+            {z.linkedUserName ? ` · ${z.linkedUserName}` : ""}
+          </option>
+        ))}
+      </select>
+      {onBehalf && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          You&apos;re submitting on behalf of {chosen?.name}. The history records you as the submitter.
+        </p>
+      )}
+    </div>
   );
 }

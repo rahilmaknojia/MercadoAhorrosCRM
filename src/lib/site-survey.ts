@@ -8,9 +8,14 @@ import { COOLER_TYPES, type CoolerDocument, type CoolerRow, type MasterDataItem 
  * match the legacy import, so imported values show up. The API owns the rules — whole-number door
  * counts, decimal shelves/facings, and "# of Cold Vault Doors" as the sum of the four door counts —
  * and the UI mirrors them only for instant feedback.
+ *
+ * The field layout follows the legacy Edit page's "Cold Vaults" and "Shelves by catagory"
+ * fieldsets, column by column, so reps find every field where they are used to it.
  */
 
 export type SurveyStatus = "draft" | "submitted";
+
+export type YesNo = "yes" | "no";
 
 export type SiteSurvey = CoolerDocument & {
   cold_vaults?: CoolerDocument["cold_vaults"] & {
@@ -19,13 +24,14 @@ export type SiteSurvey = CoolerDocument & {
   };
   shelves?: Record<string, number>;
   facings?: Record<string, number>;
-  flags?: { cooler_store?: true; dry_store?: true; space_payment_eligible?: string };
+  /** Yes/No answers are "yes"/"no"; older imports stored `true` for Yes. */
+  flags?: { cooler_store?: YesNo | true; dry_store?: YesNo | true; space_payment_eligible?: string };
 };
 
 export type SurveyVersionSummary = {
   version: number;
   status: SurveyStatus;
-  /** "baseline" = the data that existed (usually imported) before the first survey version. */
+  /** "legacy" = the old system's last survey (from the import); "baseline" = data on file before any survey. */
   source: string | null;
   createdOn: string;
   createdBy: string;
@@ -33,7 +39,14 @@ export type SurveyVersionSummary = {
   modifiedBy: string | null;
   submittedOn: string | null;
   submittedBy: string | null;
+  /** The zone manager this survey counts for (fixed at submit; moved by a transfer). */
+  zoneManagerId: number | null;
+  zoneManagerName: string | null;
+  /** Submitted by someone other than that zone manager. */
+  onBehalf: boolean;
 };
+
+export type ZoneManagerRef = { id: number; name: string };
 
 export type SurveyVersion = { summary: SurveyVersionSummary; survey: SiteSurvey };
 
@@ -46,6 +59,8 @@ export type SurveyOverview = {
   coolerModifiedOn: string | null;
   /** Newest first. */
   history: SurveyVersionSummary[];
+  /** Who a submit by the current user counts for by default: their own zone manager, else the member's. */
+  defaultZoneManager: ZoneManagerRef | null;
 };
 
 // ---- fields -----------------------------------------------------------------------------------
@@ -69,7 +84,15 @@ export const CARB_SHELVES_HINT = "Shelves of carbonated drinks (sodas, sparkling
 export const NON_CARB_SHELVES_HINT =
   "Shelves of non-carbonated drinks (water, juice, tea, sports and energy drinks) in the cold vault.";
 
-/** Summed into "# of Cold Vault Doors". */
+const shelf = (key: string, label: string, extra?: Partial<NumberField>): NumberField => ({
+  section: "shelves",
+  key,
+  label,
+  ...extra,
+});
+const facing = (key: string, label: string): NumberField => ({ section: "facings", key, label });
+
+/** Summed into "# of Cold Vault Doors" (legacy `.cooler-count`). */
 export const DOOR_FIELDS: NumberField[] = [
   { section: "cold_vaults", key: "no_of_carb_doors", label: "# of Carb Doors", whole: true },
   { section: "cold_vaults", key: "no_of_non_carb_doors", label: "# of Non-Carb Doors", whole: true },
@@ -77,48 +100,82 @@ export const DOOR_FIELDS: NumberField[] = [
   { section: "cold_vaults", key: "no_of_beer_doors", label: "# of Beer Doors", whole: true },
 ];
 
-export const SHELF_FIELDS: NumberField[] = [
-  { section: "shelves", key: "milk", label: "# of Milk Shelves" },
-  { section: "shelves", key: "carb", label: "# of Carb Shelves", hint: CARB_SHELVES_HINT },
-  { section: "shelves", key: "non_carb", label: "# of Non-Carb Shelves", hint: NON_CARB_SHELVES_HINT },
-  { section: "shelves", key: "redbull", label: "# of Redbull Shelves" },
-  { section: "shelves", key: "monster", label: "# of Monster Shelves" },
-  { section: "shelves", key: "gatorade", label: "# of Gatorade Shelves" },
-  { section: "facings", key: "body_armour", label: "# of Body Armour Facings" },
-  { section: "facings", key: "uptime", label: "# of Uptime Facings" },
-  { section: "shelves", key: "no_of_20oz_csd_facing", label: "# of 20oz Facing in Shelf", whole: true },
-  { section: "facings", key: "arizona", label: "# of Arizona Facings" },
-  { section: "facings", key: "nesquick", label: "# of Nesquick Facings" },
-  { section: "facings", key: "bang", label: "# of Bang Facings" },
-  { section: "shelves", key: "shelves_in_door", label: "Shelves In Door", whole: true },
-];
-
-export const CATEGORY_FIELDS: NumberField[] = [
-  { section: "shelves", key: "energy", label: "Energy Shelves" },
-  { section: "shelves", key: "functional_energy", label: "Functional Energy Shelves" },
-  { section: "shelves", key: "fit_energy", label: "Fit Energy Shelves" },
-  { section: "shelves", key: "isotonics", label: "Isotonics Shelves" },
-  { section: "shelves", key: "water", label: "Water Shelves" },
-  { section: "shelves", key: "enhanced_water", label: "Enhanced Water Shelves" },
-  { section: "shelves", key: "tea", label: "Tea Shelves" },
-  { section: "shelves", key: "coffee", label: "Coffee Shelves" },
-  { section: "shelves", key: "protein", label: "Protein Shelves" },
-  { section: "shelves", key: "juice", label: "Juice Shelves (Incl Juice Drinks)" },
-  { section: "shelves", key: "dairy", label: "Dairy Shelves" },
-  { section: "shelves", key: "store_option", label: "# of Store Option Shelves" },
-];
-
-export const NUMBER_FIELDS = [...DOOR_FIELDS, ...SHELF_FIELDS, ...CATEGORY_FIELDS];
-
-export const YES_FLAGS = [
+export const YES_NO_FIELDS = [
   { key: "cooler_store", label: "Cooler Store" },
   { key: "dry_store", label: "Dry Store" },
 ] as const;
 
-export type YesFlagKey = (typeof YES_FLAGS)[number]["key"];
+export type YesNoKey = (typeof YES_NO_FIELDS)[number]["key"];
 
 /** The legacy dropdown's values, verbatim. */
-export const SPACE_PAYMENT_OPTIONS = ["Yes", "No-Other", "No-Outsourcing"] as const;
+export const SPACE_PAYMENT_OPTIONS = [
+  "Yes",
+  "No-Non Compliance",
+  "No-Outsourcing",
+  "No-Refused Reset",
+  "No-Other",
+] as const;
+
+/** One cell of the Cold Vaults grid. */
+export type ColdVaultItem =
+  | { kind: "modified" }
+  | { kind: "total" }
+  | { kind: "number"; field: NumberField }
+  | { kind: "yesno"; key: YesNoKey; label: string }
+  | { kind: "spacePayment" };
+
+const num = (field: NumberField): ColdVaultItem => ({ kind: "number", field });
+
+/** The legacy "Cold Vaults" fieldset, as its three columns (top to bottom). */
+export const COLD_VAULT_COLUMNS: ColdVaultItem[][] = [
+  [{ kind: "modified" }, { kind: "total" }, ...DOOR_FIELDS.map(num), num(shelf("milk", "# of Milk Shelves"))],
+  [
+    shelf("carb", "# of Carb Shelves", { hint: CARB_SHELVES_HINT }),
+    shelf("non_carb", "# of Non-Carb Shelves", { hint: NON_CARB_SHELVES_HINT }),
+    shelf("redbull", "# of Redbull Shelves"),
+    shelf("monster", "# of Monster Shelves"),
+    shelf("gatorade", "# of Gatorade Shelves"),
+    facing("body_armour", "# of Body Armour Facings"),
+    facing("uptime", "# of Uptime Facings"),
+    shelf("no_of_20oz_csd_facing", "# of 20oz Facing in Shelf", { whole: true }),
+  ].map(num),
+  [
+    num(facing("arizona", "# of Arizona Facings")),
+    num(facing("nesquick", "# of Nesquick Facings")),
+    num(facing("bang", "# of Bang Facings")),
+    ...YES_NO_FIELDS.map((f): ColdVaultItem => ({ kind: "yesno", key: f.key, label: f.label })),
+    { kind: "spacePayment" },
+    num(shelf("shelves_in_door", "Shelves In Door", { whole: true })),
+  ],
+];
+
+/** The legacy "Shelves by catagory" fieldset, as its three columns. */
+export const CATEGORY_COLUMNS: NumberField[][] = [
+  [
+    shelf("energy", "Energy Shelves"),
+    shelf("functional_energy", "Functional Energy Shelves"),
+    shelf("fit_energy", "Fit Energy Shelves"),
+    shelf("isotonics", "Isotonics Shelves"),
+  ],
+  [
+    shelf("water", "Water Shelves"),
+    shelf("enhanced_water", "Enhanced Water Shelves"),
+    shelf("tea", "Tea Shelves"),
+    shelf("coffee", "Coffee Shelves"),
+  ],
+  [
+    shelf("protein", "Protein Shelves"),
+    shelf("juice", "Juice Shelves (Incl Juice Drinks)"),
+    shelf("dairy", "Dairy Shelves"),
+    shelf("store_option", "# of Store Option Shelves"),
+  ],
+];
+
+/** Every number field, in legacy order (column by column). */
+export const NUMBER_FIELDS: NumberField[] = [
+  ...COLD_VAULT_COLUMNS.flat().flatMap((item) => (item.kind === "number" ? [item.field] : [])),
+  ...CATEGORY_COLUMNS.flat(),
+];
 
 /**
  * Keys the survey owns inside sections it shares with other imported fields (`facings.jarritos`,
@@ -132,7 +189,7 @@ export const SURVEY_OWNED_KEYS: Record<string, string[]> = {
     "no_of_store_options",
   ],
   facings: NUMBER_FIELDS.filter((f) => f.section === "facings").map((f) => f.key),
-  flags: [...YES_FLAGS.map((f) => f.key), "space_payment_eligible"],
+  flags: [...YES_NO_FIELDS.map((f) => f.key), "space_payment_eligible"],
   store_profile: ["cooler_modified"],
 };
 
@@ -150,6 +207,28 @@ export function formatCount(v: number | undefined | null): string {
   return String(Math.round(v * 100) / 100);
 }
 
+/**
+ * Keep only what a field accepts while typing: digits for whole numbers (legacy stripped
+ * everything else on keyup), digits and one decimal point otherwise.
+ */
+export function sanitizeCount(raw: string, whole: boolean | undefined): string {
+  if (whole) return raw.replace(/\D/g, "");
+  const cleaned = raw.replace(/[^\d.]/g, "");
+  const dot = cleaned.indexOf(".");
+  return dot === -1 ? cleaned : cleaned.slice(0, dot + 1) + cleaned.slice(dot + 1).replace(/\./g, "");
+}
+
+const yesNoOf = (v: unknown): YesNo | "" => {
+  if (v === true) return "yes";
+  if (v === false) return "no";
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "yes" || s === "true") return "yes";
+    if (s === "no" || s === "false") return "no";
+  }
+  return "";
+};
+
 // ---- form state ---------------------------------------------------------------------------------
 
 export type SurveyForm = {
@@ -160,7 +239,7 @@ export type SurveyForm = {
   numbers: Record<string, string>;
   /** A legacy total with no door breakdown, kept for display until doors are entered. */
   legacyTotal: number | undefined;
-  flags: Record<YesFlagKey, boolean>;
+  yesNo: Record<YesNoKey, YesNo | "">;
   spacePayment: string;
 };
 
@@ -182,20 +261,22 @@ export function toForm(survey: SiteSurvey): SurveyForm {
     sharedNotes: survey.shared_coolers?.notes ?? "",
     numbers,
     legacyTotal: hasDoors ? undefined : survey.cold_vaults?.no_of_cold_vault,
-    flags: { cooler_store: !!survey.flags?.cooler_store, dry_store: !!survey.flags?.dry_store },
+    yesNo: { cooler_store: yesNoOf(survey.flags?.cooler_store), dry_store: yesNoOf(survey.flags?.dry_store) },
     spacePayment: survey.flags?.space_payment_eligible ?? "",
   };
 }
 
+/** The door counts that are filled in, for the "1 + 0 + 2 + 2" breakdown. */
+export function doorParts(form: SurveyForm): number[] {
+  return DOOR_FIELDS.map((f) => form.numbers[fieldId(f)]?.trim() ?? "")
+    .filter((raw) => raw !== "" && !Number.isNaN(Number(raw)))
+    .map(Number);
+}
+
 /** "# of Cold Vault Doors": the door sum once any door is entered, else a stored legacy total. */
 export function coldVaultTotal(form: SurveyForm): number | undefined {
-  let total: number | undefined;
-  for (const f of DOOR_FIELDS) {
-    const raw = form.numbers[fieldId(f)]?.trim();
-    const n = raw ? Number(raw) : NaN;
-    if (!Number.isNaN(n)) total = (total ?? 0) + n;
-  }
-  return total ?? form.legacyTotal;
+  const parts = doorParts(form);
+  return parts.length ? parts.reduce((a, b) => a + b, 0) : form.legacyTotal;
 }
 
 /** Build the survey to send, or the list of problems to fix first. */
@@ -232,21 +313,51 @@ export function fromForm(form: SurveyForm): { survey: SiteSurvey } | { errors: s
   }
 
   // Keep a legacy total that has no door breakdown (the API does the same).
-  if (form.legacyTotal !== undefined && !DOOR_FIELDS.some((f) => form.numbers[fieldId(f)]?.trim())) {
+  if (form.legacyTotal !== undefined && doorParts(form).length === 0) {
     (survey.cold_vaults ??= {}).no_of_cold_vault = form.legacyTotal;
   }
 
   const flags: NonNullable<SiteSurvey["flags"]> = {};
-  for (const { key } of YES_FLAGS) if (form.flags[key]) flags[key] = true;
+  for (const { key } of YES_NO_FIELDS) if (form.yesNo[key]) flags[key] = form.yesNo[key] as YesNo;
   if (form.spacePayment) flags.space_payment_eligible = form.spacePayment;
   if (Object.keys(flags).length) survey.flags = flags;
 
   return errors.length ? { errors } : { survey };
 }
 
+/**
+ * Every editable value of the form keyed by a stable id, so the editor can mark fields that
+ * differ from where the edit started.
+ */
+export function formValues(form: SurveyForm): Record<string, string> {
+  const out: Record<string, string> = { ...form.numbers };
+  for (const { key } of COOLER_TYPES) {
+    out[`coolers.${key}`] = form.rows
+      .filter((r) => r.coolerType === key)
+      .map((r) => `${r.brand}:${r.package}`)
+      .sort()
+      .join(",");
+  }
+  out.shared_coolers = [...form.sharedSelected].sort().join(",");
+  out.shared_notes = form.sharedNotes.trim();
+  for (const { key } of YES_NO_FIELDS) out[`flags.${key}`] = form.yesNo[key];
+  out["flags.space_payment_eligible"] = form.spacePayment;
+  return out;
+}
+
+/** Ids whose value differs between two forms (numbers compared numerically, so "1" = "1.0"). */
+export function changedIds(start: SurveyForm, current: SurveyForm): Set<string> {
+  const a = formValues(start);
+  const b = formValues(current);
+  const same = (x = "", y = "") => x === y || (x.trim() !== "" && y.trim() !== "" && Number(x) === Number(y));
+  return new Set(Object.keys(b).filter((id) => !same(a[id], b[id])));
+}
+
 // ---- display ------------------------------------------------------------------------------------
 
 export const labelOf = (items: MasterDataItem[], code: string) => items.find((i) => i.code === code)?.name ?? code;
+
+export const yesNoLabel = (v: YesNo | "") => (v === "yes" ? "Yes" : v === "no" ? "No" : "");
 
 /** A date-only (`2026-09-29`) or UTC date-time string, for display. */
 export function formatSurveyDate(value: string | null | undefined, withTime = true): string {
@@ -261,7 +372,7 @@ export function formatSurveyDate(value: string | null | undefined, withTime = tr
 
 export type Catalogues = { brands: MasterDataItem[]; packages: MasterDataItem[]; sharedCoolers: MasterDataItem[] };
 
-/** Every recorded value of a survey as label → display text, in form order. For diffs. */
+/** Every recorded value of a survey as label → display text, in legacy layout order. For diffs. */
 export function describeSurvey(survey: SiteSurvey, catalogues: Catalogues): Map<string, string> {
   const out = new Map<string, string>();
   const form = toForm(survey);
@@ -277,14 +388,23 @@ export function describeSurvey(survey: SiteSurvey, catalogues: Catalogues): Map<
   }
   if (form.sharedNotes) out.set("Shared cooler notes", form.sharedNotes);
 
-  const total = survey.cold_vaults?.no_of_cold_vault;
-  if (total !== undefined) out.set("# of Cold Vault Doors", formatCount(total));
-  for (const f of NUMBER_FIELDS) {
+  for (const item of COLD_VAULT_COLUMNS.flat()) {
+    if (item.kind === "total") {
+      const total = survey.cold_vaults?.no_of_cold_vault;
+      if (total !== undefined) out.set("# of Cold Vault Doors", formatCount(total));
+    } else if (item.kind === "number") {
+      const v = numberOf(survey, item.field);
+      if (v !== undefined) out.set(item.field.label, formatCount(v));
+    } else if (item.kind === "yesno") {
+      if (form.yesNo[item.key]) out.set(item.label, yesNoLabel(form.yesNo[item.key]));
+    } else if (item.kind === "spacePayment") {
+      if (form.spacePayment) out.set("Space Payment Eligible", form.spacePayment);
+    }
+  }
+  for (const f of CATEGORY_COLUMNS.flat()) {
     const v = numberOf(survey, f);
     if (v !== undefined) out.set(f.label, formatCount(v));
   }
-  for (const { key, label } of YES_FLAGS) if (form.flags[key]) out.set(label, "Yes");
-  if (form.spacePayment) out.set("Space Payment Eligible", form.spacePayment);
   return out;
 }
 
