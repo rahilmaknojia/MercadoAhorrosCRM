@@ -61,7 +61,9 @@ export async function hasPermission(permission: string, cookie?: string | null):
     });
     if (!res.ok) return false;
 
-    const permissions = (await res.json()) as string[];
+    // The API returns `{ userId, email, roles, permissions }` (MePermissionsResponse), not a bare list.
+    const body = (await res.json()) as { permissions?: unknown } | null;
+    const permissions = body?.permissions;
     return Array.isArray(permissions) && permissions.includes(permission);
   } catch {
     return false;
