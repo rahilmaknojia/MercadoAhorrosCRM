@@ -31,6 +31,6 @@ export const config = {
   // (logo, favicon, icons) must be excluded: the image optimizer fetches the original
   // server-side without the session cookie, and gating it would 307 → break the asset.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|avif)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|avif|mjs)$).*)",
   ],
 };

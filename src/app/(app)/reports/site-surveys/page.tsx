@@ -3,7 +3,9 @@ import { ChevronLeft } from "lucide-react";
 import { apiFetch } from "@/lib/server/api";
 import { buttonVariants } from "@/components/ui/button";
 import { SurveyScoresView } from "@/components/survey-scores-view";
+import { ZoneManagerCoverage } from "@/components/zone-manager-coverage";
 import type { SurveyScoreReport } from "@/lib/survey-scores";
+import type { ZoneManagerCoverageReport } from "@/lib/survey-worklist";
 
 export default async function SiteSurveyScoresPage({
   searchParams,
@@ -26,14 +28,24 @@ export default async function SiteSurveyScoresPage({
     error = "Could not reach the API.";
   }
 
+  // Coverage of the yearly requirement (members surveyed ÷ members assigned), same year.
+  let coverage: ZoneManagerCoverageReport | null = null;
+  try {
+    const res = await apiFetch(`/api/site-surveys/coverage?year=${report?.year ?? params.get("year") ?? ""}`);
+    if (res.ok) coverage = (await res.json()) as ZoneManagerCoverageReport;
+  } catch {
+    // The scores still render without it.
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Site survey scores</h1>
           <p className="text-sm text-muted-foreground">
-            Submitted cooler surveys and compliance reviews by zone manager and year. Completeness is the share of
-            survey fields filled in; activity is the share the visit added or changed.
+            Whether each zone manager has surveyed their members this year, and how complete and thorough those
+            surveys are. Completeness is the share of survey fields filled in; activity is the share the visit added
+            or changed.
           </p>
         </div>
         <Link href="/reports" className={buttonVariants({ variant: "ghost", size: "sm" })}>
@@ -46,7 +58,10 @@ export default async function SiteSurveyScoresPage({
           {error ?? "Failed to load the report."}
         </div>
       ) : (
-        <SurveyScoresView report={report} />
+        <SurveyScoresView
+          report={report}
+          coverage={coverage ? <ZoneManagerCoverage report={coverage} /> : null}
+        />
       )}
     </div>
   );

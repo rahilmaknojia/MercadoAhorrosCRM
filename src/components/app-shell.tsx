@@ -8,10 +8,11 @@ import { cn } from "@/lib/utils";
 import { UserMenu } from "@/components/user-menu";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { BreadcrumbProvider } from "@/components/breadcrumb-context";
-import { BarChart3, Menu, PanelLeft, Settings, Users, X } from "lucide-react";
+import { BarChart3, ClipboardCheck, Menu, PanelLeft, Settings, Users, X } from "lucide-react";
 
 const NAV = [
   { href: "/customers", label: "Customers", icon: Users },
+  { href: "/surveys", label: "My surveys", icon: ClipboardCheck },
   { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;

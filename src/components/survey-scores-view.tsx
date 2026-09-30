@@ -23,7 +23,14 @@ const selectClass =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 /** Filters, totals, the per-group table and the individual surveys of the survey scores report. */
-export function SurveyScoresView({ report }: { report: SurveyScoreReport }) {
+export function SurveyScoresView({
+  report,
+  coverage,
+}: {
+  report: SurveyScoreReport;
+  /** The yearly-requirement coverage table, shown under the filters. */
+  coverage?: React.ReactNode;
+}) {
   const router = useProgressRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -84,6 +91,9 @@ export function SurveyScoresView({ report }: { report: SurveyScoreReport }) {
         </Can>
       </div>
 
+      {coverage}
+
+      <h2 className="text-base font-semibold">Survey scores</h2>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Stat label="Surveys submitted" value={report.totals.surveys.toLocaleString()} />
         <Stat label="Members surveyed" value={report.totals.members.toLocaleString()} />

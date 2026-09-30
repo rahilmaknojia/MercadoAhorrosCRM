@@ -7,7 +7,8 @@ import { AggregateChart } from "@/components/dashboard/aggregate-chart";
 import { apiFetch } from "@/lib/server/api";
 import { parseDefinition } from "@/lib/report";
 import type { AggregateBucket, ReportDefinition, ReportPreset } from "@/lib/types";
-import { BarChart3, CircleCheck, CircleMinus, Clock, TrendingUp, Users } from "lucide-react";
+import type { ZoneManagerWorklist } from "@/lib/survey-worklist";
+import { BarChart3, ClipboardCheck, CircleCheck, CircleMinus, Clock, TrendingUp, Users } from "lucide-react";
 
 async function getPinnedReports(): Promise<{ id: number; name: string; def: ReportDefinition }[]> {
   try {
@@ -35,16 +36,29 @@ async function getAggregate(groupBy: string): Promise<AggregateBucket[]> {
   }
 }
 
+/** The signed-in zone manager's survey progress this year; null when they aren't a linked zone manager. */
+async function getMySurveys(): Promise<ZoneManagerWorklist | null> {
+  try {
+    const res = await apiFetch("/api/site-surveys/mine");
+    if (!res.ok) return null;
+    const body = (await res.json()) as ZoneManagerWorklist;
+    return body.zoneManagerId === null ? null : body;
+  } catch {
+    return null;
+  }
+}
+
 const bucketValue = (buckets: AggregateBucket[], key: string): number =>
   buckets.find((b) => b.key.toLowerCase() === key.toLowerCase())?.count ?? 0;
 
 export default async function DashboardPage() {
-  const [pinned, statusBuckets, districtBuckets, regionBuckets, monthBuckets] = await Promise.all([
+  const [pinned, statusBuckets, districtBuckets, regionBuckets, monthBuckets, mySurveys] = await Promise.all([
     getPinnedReports(),
     getAggregate("status"),
     getAggregate("district"),
     getAggregate("region"),
     getAggregate("dateJoined"),
+    getMySurveys(),
   ]);
 
   const total = statusBuckets.reduce((t, b) => t + b.count, 0);
@@ -58,6 +72,35 @@ export default async function DashboardPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
         <p className="text-muted-foreground">Welcome to the Mercado Ahorros CRM.</p>
       </div>
+
+      {mySurveys && (
+        <Link
+          href="/surveys"
+          className="flex flex-wrap items-center gap-4 rounded-xl border bg-card p-5 shadow-xs transition-colors hover:border-primary/30"
+        >
+          <span className="inline-flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <ClipboardCheck className="size-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold">
+              Your surveys {mySurveys.year}: {mySurveys.totals.completed} of {mySurveys.totals.members} members done
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {mySurveys.totals.notStarted + mySurveys.totals.inProgress > 0
+                ? `${mySurveys.totals.notStarted + mySurveys.totals.inProgress} still to survey this year`
+                : "Every member surveyed this year"}
+              {" · "}
+              {mySurveys.totals.recommendedMet} surveyed twice (recommended)
+            </div>
+          </div>
+          <div className="w-40">
+            <div className="text-right text-sm font-semibold tabular-nums">{mySurveys.totals.completionRate}%</div>
+            <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-emerald-600" style={{ width: `${mySurveys.totals.completionRate}%` }} />
+            </div>
+          </div>
+        </Link>
+      )}
 
       {hasOverview && (
         <>
