@@ -16,6 +16,9 @@ export default async function SystemSettingsPage() {
   const settings = await fetchSettings();
   const autoApprove =
     (settings["AutoGenerateMemberIdOnApproval"] ?? "false").toLowerCase() === "true";
+  // Allowed unless explicitly turned off (the mobile app treats a missing setting the same way).
+  const offlineAppPin =
+    (settings["OfflineAppPinAllowed"] ?? "true").toLowerCase() !== "false";
 
   return (
     <div className="space-y-4">
@@ -25,7 +28,10 @@ export default async function SystemSettingsPage() {
           Owner-only configuration that changes how the app behaves for everyone.
         </p>
       </div>
-      <SystemSettingsManager autoGenerateMemberIdOnApproval={autoApprove} />
+      <SystemSettingsManager
+        autoGenerateMemberIdOnApproval={autoApprove}
+        offlineAppPinAllowed={offlineAppPin}
+      />
     </div>
   );
 }
