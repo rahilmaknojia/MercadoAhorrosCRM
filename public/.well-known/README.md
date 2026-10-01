@@ -14,9 +14,9 @@ Next.js serves everything under `public/` at the site root, so these files publi
 1. **`assetlinks.json` → `sha256_cert_fingerprints`**: the SHA-256 of the **app signing** cert
    (Play App Signing key for production; the debug keystore for local testing). Get it with:
    `keytool -list -v -keystore <keystore> -alias <alias>` — copy the SHA-256 line.
-2. **`apple-app-site-association` → `appIDs`**: `<TeamID>.<BundleID>`. The Xcode team is
-   `SKAGC4WT49` and the bundle id is `com.example.mercadoAhorrosMobile` (both placeholders from the
-   scaffold — update to the real App Store identifiers before release).
+2. **`apple-app-site-association` → `appIDs`**: `<TeamID>.<BundleID>`, currently
+   `SKAGC4WT49.net.mercadoahorros.mobile` (the paid Apple team and the app's bundle id).
+   Update it if the bundle id changes before the first App Store release.
 3. **`package_name`** in `assetlinks.json`: currently `com.example.mercado_ahorros_mobile` (the
    scaffold `applicationId`) — update to the production Android application id.
 

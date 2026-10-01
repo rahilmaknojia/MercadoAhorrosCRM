@@ -2,7 +2,7 @@
   "applinks": {
     "details": [
       {
-        "appIDs": ["SKAGC4WT49.com.example.mercadoAhorrosMobile"],
+        "appIDs": ["SKAGC4WT49.net.mercadoahorros.mobile"],
         "components": [
           { "/": "/members/*" },
           { "/": "/customers/*" }
