@@ -47,14 +47,16 @@ export function SystemSettingsManager({
           <SettingSwitch
             settingKey={OFFLINE_APP_PIN_KEY}
             initial={offlineAppPinAllowed}
-            label="Allow an app PIN on devices without a screen lock"
-            onMessage="Reps without a screen lock can now set an app PIN for offline use."
-            offMessage="Offline access now requires a device screen lock."
+            label="Allow an app PIN"
+            onMessage="Reps can now sign in and work offline with an app PIN."
+            offMessage="Reps now need the device unlock to sign in quickly or work offline."
           >
-            The mobile app opens offline only after the rep unlocks the device (Face ID, fingerprint,
-            PIN or pattern). When on, a rep whose device has no screen lock can set a 4–6 digit app
-            PIN instead; five wrong tries turn it off until they sign in online. When off, those reps
-            must add a screen lock to their device to work offline.
+            Reps can choose to sign in to the mobile app with the device unlock (Face ID,
+            fingerprint, or the phone&apos;s PIN or pattern) or with a 4–6 digit app PIN, and the
+            app opens offline only after one of them. When on, any rep can set an app PIN, including
+            on a device with no screen lock; five wrong tries turn it off until they sign in with
+            Microsoft or email. When off, reps need a device screen lock to sign in quickly or work
+            offline.
           </SettingSwitch>
         </CardContent>
       </Card>
