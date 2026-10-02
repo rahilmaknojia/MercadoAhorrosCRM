@@ -3,7 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { apiFetch } from "@/lib/server/api";
 import type { ActionResult } from "@/app/(app)/customers/[id]/cooler-actions";
-import type { EsignatureManualRecipient, SigningSession } from "@/lib/types";
+import type {
+  EsignatureManualRecipient,
+  EsignatureMergeChanges,
+  EsignatureMergeUpdateResult,
+  SigningSession,
+} from "@/lib/types";
 
 // A result that may carry data (the signing session + which document it belongs to, so the caller
 // can re-sync that document's status after the session closes).
@@ -118,4 +123,33 @@ export async function deleteEsignatureDocument(
   if (!res.ok) return { ok: false, error: await readError(res, "Could not delete the document.") };
   revalidatePath(`/customers/${customerId}`);
   return { ok: true };
+}
+
+type DataResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+/**
+ * Which details changed since the document was sent (the customer record was edited while it
+ * waited to be signed). Read-only — nothing is changed in NinjaFlow.
+ */
+export async function getEsignatureDocumentChanges(
+  documentId: number
+): Promise<DataResult<EsignatureMergeChanges>> {
+  const res = await apiFetch(`/api/esignature-documents/${documentId}/changes`).catch(() => null);
+  if (!res) return { ok: false, error: "Could not reach the API." };
+  if (!res.ok) return { ok: false, error: await readError(res, "Could not check the document's details.") };
+  return { ok: true, data: (await res.json()) as EsignatureMergeChanges };
+}
+
+/** Update an open document with the customer's current details. */
+export async function updateEsignatureDocumentDetails(
+  customerId: number,
+  documentId: number
+): Promise<DataResult<EsignatureMergeUpdateResult>> {
+  const res = await apiFetch(`/api/esignature-documents/${documentId}/update-merge-data`, {
+    method: "POST",
+  }).catch(() => null);
+  if (!res) return { ok: false, error: "Could not reach the API." };
+  if (!res.ok) return { ok: false, error: await readError(res, "Could not update the document.") };
+  revalidatePath(`/customers/${customerId}`);
+  return { ok: true, data: (await res.json()) as EsignatureMergeUpdateResult };
 }

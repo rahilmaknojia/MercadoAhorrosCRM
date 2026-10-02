@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   deleteEsignatureDocument,
+  getEsignatureDocumentChanges,
   launchInPersonSigning,
   refreshEsignatureDocument,
   sendEsignatureDocument,
   startInPersonFromTemplate,
+  updateEsignatureDocumentDetails,
 } from "@/app/(app)/customers/[id]/esignature-actions";
 import { saveCustomerSignature } from "@/app/(app)/customers/onboard/actions";
 import { CustomerSignatureCard } from "@/components/customer-signature-card";
@@ -20,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EsignatureSendDialog } from "@/components/esignature-send-dialog";
+import { EsignatureUpdateDetailsDialog } from "@/components/esignature-update-details-dialog";
 import { cn } from "@/lib/utils";
 import { sortTemplatesForDisplay, tagBadgeClass } from "@/lib/esign";
 import { parseTemplateMapping, snapshotChipLabel } from "@/lib/esign-survey";
@@ -27,9 +30,10 @@ import type {
   EsignatureDocument,
   EsignatureDocumentRecipient,
   EsignatureManualRecipient,
+  EsignatureMergeChanges,
   EsignatureTemplate,
 } from "@/lib/types";
-import { ClipboardCheck, Download, Eye, Loader2, PenLine, RefreshCw, Send, Trash2, X } from "lucide-react";
+import { ClipboardCheck, Download, Eye, FileDiff, Loader2, PenLine, RefreshCw, Send, Trash2, X } from "lucide-react";
 
 // The active in-person session: the signing url (a short-lived credential, kept only in memory)
 // plus which document it belongs to, so we can re-sync that document's status when it closes.
@@ -837,14 +841,98 @@ function DocumentRow({
     });
   }
 
+  // "Update details" needs customer_data:update; without it, resuming just goes straight to signing.
+  const canUpdate = useCan("customer_data:update");
+  const updatable = canUpdate && isSignable(document.status) && document.esignatureTemplateId != null;
+  const [detailsDialog, setDetailsDialog] = useState<{
+    mode: "resume" | "manual";
+    changes: EsignatureMergeChanges;
+  } | null>(null);
+  const [busy, setBusy] = useState<"sign" | "details" | "update" | null>(null);
+
+  async function launch() {
+    const res = await launchInPersonSigning(document.id);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    onSession({ url: res.data.session.url, documentId: res.data.documentId });
+  }
+
+  // Resuming in-person signing: if the customer's details changed since the document was created,
+  // ask before opening it. A failed check never blocks signing — it just opens the document.
   function signInPerson() {
     startTransition(async () => {
-      const res = await launchInPersonSigning(document.id);
+      setBusy("sign");
+      try {
+        if (updatable) {
+          const check = await getEsignatureDocumentChanges(document.id);
+          if (check.ok && check.data.updatable && check.data.tracked && check.data.changes.length > 0) {
+            setDetailsDialog({ mode: "resume", changes: check.data });
+            return;
+          }
+        }
+        await launch();
+      } finally {
+        setBusy(null);
+      }
+    });
+  }
+
+  function openDetails() {
+    startTransition(async () => {
+      setBusy("details");
+      const check = await getEsignatureDocumentChanges(document.id);
+      setBusy(null);
+      if (!check.ok) {
+        toast.error(check.error);
+        return;
+      }
+      if (!check.data.updatable) {
+        toast.info(check.data.notUpdatableReason ?? "This document can no longer change.");
+        return;
+      }
+      setDetailsDialog({ mode: "manual", changes: check.data });
+    });
+  }
+
+  function updateDetails() {
+    const mode = detailsDialog?.mode;
+    startTransition(async () => {
+      setBusy("update");
+      const res = await updateEsignatureDocumentDetails(customerId, document.id);
       if (!res.ok) {
+        setBusy(null);
         toast.error(res.error);
         return;
       }
-      onSession({ url: res.data.session.url, documentId: res.data.documentId });
+      const { updated, skipped } = res.data;
+      if (updated.length > 0) {
+        toast.success(`Document updated with ${updated.length} new ${updated.length === 1 ? "detail" : "details"}.`);
+      } else if (skipped.length === 0) {
+        toast.info("The document already had the latest details.");
+      }
+      if (skipped.length > 0) {
+        toast.warning(
+          `${skipped.length} ${skipped.length === 1 ? "detail was" : "details were"} kept as they were: ` +
+            skipped.map((s) => `${s.token} (${SKIP_REASON[s.reason] ?? s.reason})`).join(", ") +
+            ". To change a signed part, void this document and send a new one.",
+          { duration: 10000 }
+        );
+      }
+      setDetailsDialog(null);
+      if (mode === "resume") await launch();
+      setBusy(null);
+      router.refresh();
+    });
+  }
+
+  function continueWithoutUpdating() {
+    setDetailsDialog(null);
+    startTransition(async () => {
+      setBusy("sign");
+      await launch();
+      setBusy(null);
     });
   }
 
@@ -929,8 +1017,21 @@ function DocumentRow({
         )}
         {signable && (
           <Button variant="outline" size="sm" onClick={signInPerson} disabled={pending} className="gap-1.5">
-            <PenLine className="h-3.5 w-3.5" />
+            {busy === "sign" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PenLine className="h-3.5 w-3.5" />}
             Sign in person
+          </Button>
+        )}
+        {updatable && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={openDetails}
+            disabled={pending}
+            title="Update with the customer's latest details"
+            className="gap-1.5"
+          >
+            {busy === "details" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDiff className="h-4 w-4" />}
+            <span className="hidden sm:inline">Update details</span>
           </Button>
         )}
         <Button variant="ghost" size="sm" onClick={refresh} disabled={pending} title="Refresh status">
@@ -958,9 +1059,27 @@ function DocumentRow({
           onClose={() => setViewOpen(false)}
         />
       )}
+
+      <EsignatureUpdateDetailsDialog
+        open={detailsDialog !== null}
+        onOpenChange={(open) => !open && setDetailsDialog(null)}
+        mode={detailsDialog?.mode ?? "manual"}
+        documentName={document.name}
+        changes={detailsDialog?.changes ?? null}
+        pending={busy === "update"}
+        onUpdate={updateDetails}
+        onContinue={continueWithoutUpdating}
+      />
     </div>
   );
 }
+
+// Why NinjaFlow kept a value as it was, in plain words.
+const SKIP_REASON: Record<string, string> = {
+  recipient_signed: "already signed",
+  envelope_signed: "someone has already signed",
+  edited_by_signer: "the signer changed it themselves",
+};
 
 // Full-screen embedded signing surface (reuses the app's fixed-overlay pattern). The signer signs
 // on the rep's device; closing returns to the tab and re-syncs the document status.

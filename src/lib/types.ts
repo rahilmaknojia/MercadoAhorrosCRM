@@ -403,6 +403,26 @@ export type EsignatureDocument = {
   sourceSnapshot?: EsignatureSourceSnapshot | null;
 };
 
+// Details (merge values) that changed since a document was sent — GET /api/esignature-documents/{id}/changes.
+export type EsignatureMergeChanges = {
+  /** Still Draft/Sent/InProgress, so its details can change. */
+  updatable: boolean;
+  notUpdatableReason?: string | null;
+  /** False for documents raised before change tracking: changes can't be listed. */
+  tracked: boolean;
+  /** Changed tokens with their CURRENT value (null = now blank). */
+  changes: EsignaturePreviewValue[];
+  warnings: string[];
+};
+
+// Result of updating a document with the customer's current details.
+export type EsignatureMergeUpdateResult = {
+  updated: string[];
+  /** Withheld by NinjaFlow: recipient_signed | envelope_signed | edited_by_signer. */
+  skipped: { token: string; reason: string }[];
+  unknownTokens: string[];
+};
+
 // A recipient inside EsignatureDocument.recipientsJson (snapshot of the envelope's signers).
 export type EsignatureDocumentRecipient = {
   id?: string | null;
