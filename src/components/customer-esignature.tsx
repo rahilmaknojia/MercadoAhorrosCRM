@@ -871,6 +871,11 @@ function DocumentRow({
             setDetailsDialog({ mode: "resume", changes: check.data });
             return;
           }
+          // Nothing to update, but something worth knowing — e.g. the compliance review was edited
+          // and saved as a draft, which a contract never uses until it is submitted.
+          if (check.ok && check.data.warnings.length > 0) {
+            toast.info(check.data.warnings.join(" "), { duration: 10000 });
+          }
         }
         await launch();
       } finally {
