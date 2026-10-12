@@ -360,6 +360,8 @@ export default async function CustomerDetailPage({
           <Field label="Date inactive" value={customer.dateInactive ? fmtDate(customer.dateInactive) : null} />
           <Field label="Inactive reason" value={customer.inactiveReason} />
           <Field label="Signed by" value={customer.signedBy} />
+          <Field label="Created by" value={customer.createdBy} />
+          <Field label="Modified by" value={customer.modifiedBy} />
         </InfoCard>
       </div>
 

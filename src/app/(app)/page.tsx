@@ -52,10 +52,9 @@ const bucketValue = (buckets: AggregateBucket[], key: string): number =>
   buckets.find((b) => b.key.toLowerCase() === key.toLowerCase())?.count ?? 0;
 
 export default async function DashboardPage() {
-  const [pinned, statusBuckets, districtBuckets, regionBuckets, monthBuckets, mySurveys] = await Promise.all([
+  const [pinned, statusBuckets, regionBuckets, monthBuckets, mySurveys] = await Promise.all([
     getPinnedReports(),
     getAggregate("status"),
-    getAggregate("district"),
     getAggregate("region"),
     getAggregate("dateJoined"),
     getMySurveys(),
@@ -140,8 +139,7 @@ export default async function DashboardPage() {
               colorMap={{ active: "#16a34a", pending: "#f59e0b", inactive: "#dc2626" }}
             />
             <AggregateChart title="Signups by month" kind="bar" data={monthBuckets} formatKey="month" />
-            <AggregateChart title="Members by district" kind="barh" data={districtBuckets} />
-            <AggregateChart title="Members by region" kind="barh" data={regionBuckets} />
+            <AggregateChart title="Members by region" kind="barh" data={regionBuckets} className="lg:col-span-2" />
           </div>
         </>
       )}
