@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useCan } from "@/components/permissions-provider";
-import { prepareImage } from "@/lib/image-prep";
+import { HeicConversionError, prepareImage } from "@/lib/image-prep";
 import { logPhotoActivity, savePhotoCaption } from "@/app/(app)/customers/photo-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,8 @@ const IMAGE_RE = /\.(jpe?g|png|gif|webp)$/i;
 // NFImageWorker stores size renditions as {originalKey}/w{width}.webp alongside the
 // original. This matches a rendition filename and captures its width.
 const RENDITION_RE = /^w(\d+)\.(webp|jpe?g|png|gif)$/i;
+// Widths NinjaFlow asks the worker for after every upload (FileService.TriggerFileCompressionEventAsync).
+const DEFAULT_RENDITION_WIDTHS = [256, 512, 1024];
 
 // Folders mirror the legacy Sunbelt app's categories (exact keys, so legacy-migrated
 // photos under {memberId}/{folder}/ line up). Display labels are friendlier.
@@ -553,9 +555,9 @@ export function CustomerPhotos({
         });
         setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, pct: 100 } : u)));
         ok++;
-      } catch {
+      } catch (err) {
         setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, error: true } : u)));
-        toast.error(`Upload failed: ${file.name}`);
+        toast.error(err instanceof HeicConversionError ? err.message : `Upload failed: ${file.name}`);
       }
     }
     setUploading(false);
@@ -572,20 +574,49 @@ export function CustomerPhotos({
     }
   }
 
-  function photoKeys(p: Photo): string[] {
-    return [p.original, ...Object.values(p.renditions)].filter(Boolean) as string[];
+  // The keys that must be gone for the photo to be gone: its original, or — for a photo whose
+  // original is already missing — the renditions that still make it show up.
+  function requiredKeys(p: Photo): string[] {
+    return p.original ? [p.original] : Object.values(p.renditions);
   }
 
-  // Delete a set of object keys (original + renditions). Returns whether any succeeded.
-  async function deleteObjects(targets: string[]): Promise<boolean> {
-    const results = await Promise.all(
-      targets.map((key) =>
-        fetch(`/api/files/Delete?filePath=${encodeURIComponent(key)}`, { method: "DELETE" })
-          .then((r) => r.ok)
-          .catch(() => false)
-      )
-    );
-    return results.some(Boolean);
+  // Everything to delete for a photo: what was listed, plus the worker's default renditions,
+  // which may have been generated after the last listing (deleting a missing key succeeds).
+  function photoKeys(p: Photo): string[] {
+    const listed = [p.original, ...Object.values(p.renditions)].filter(Boolean) as string[];
+    const anyRendition = Object.values(p.renditions)[0];
+    const variantDir = anyRendition
+      ? anyRendition.slice(0, anyRendition.lastIndexOf("/"))
+      : p.original
+        ? `${p.original.slice(0, p.original.lastIndexOf("/"))}/_v/${encodeURIComponent(stripImageExt(fileNameOf(p.original)))}`
+        : undefined;
+    const defaults = variantDir ? DEFAULT_RENDITION_WIDTHS.map((w) => `${variantDir}/w${w}.webp`) : [];
+    return Array.from(new Set([...listed, ...defaults]));
+  }
+
+  async function deleteKey(key: string): Promise<number> {
+    try {
+      const r = await fetch(`/api/files/Delete?filePath=${encodeURIComponent(key)}`, { method: "DELETE" });
+      return r.status;
+    } catch {
+      return 0;
+    }
+  }
+
+  // Delete photos one at a time (their keys in parallel), so a bulk delete doesn't fire dozens
+  // of requests at once. A photo only counts as deleted when all of its required keys are gone;
+  // anything else is reported as failed rather than hidden and "deleted" again next visit.
+  async function deletePhotos(targets: Photo[]): Promise<{ deleted: number; failed: number }> {
+    let deleted = 0;
+    for (const p of targets) {
+      const required = new Set(requiredKeys(p));
+      const statuses = await Promise.all(photoKeys(p).map(async (key) => [key, await deleteKey(key)] as const));
+      const ok = statuses.every(([key, status]) =>
+        status >= 200 && status < 300 ? true : !required.has(key) && status === 404
+      );
+      if (ok) deleted++;
+    }
+    return { deleted, failed: targets.length - deleted };
   }
 
   function toggleSelect(id: string) {
@@ -613,26 +644,27 @@ export function CustomerPhotos({
       return;
     }
     const isBulk = confirm?.kind === "bulk";
-    const targets = confirmTargets.flatMap(photoKeys);
+    const folder = isBulk ? selectedLabel : folderLabel(confirmTargets[0].folder);
     setDeleting(true);
-    const ok = await deleteObjects(targets);
+    const { deleted, failed } = await deletePhotos(confirmTargets);
+    // Re-read storage rather than trusting local state, so what's shown is what's really there.
+    await loadIndex();
     setDeleting(false);
     setConfirm(null);
-    if (!ok) {
-      toast.error(isBulk ? "Failed to delete photos." : "Failed to delete photo.");
-      return;
-    }
-    const removed = new Set(targets);
-    setKeys((prev) => prev.filter((k) => !removed.has(k)));
     setLightbox(null);
     if (isBulk) {
       setSelectedIds(new Set());
       setSelectMode(false);
-      toast.success(`Deleted ${confirmTargets.length} photo${confirmTargets.length > 1 ? "s" : ""}.`);
-      audit(`Deleted ${confirmTargets.length} photo${confirmTargets.length > 1 ? "s" : ""} from ${selectedLabel}.`);
+    }
+    if (deleted > 0) {
+      audit(`Deleted ${deleted} photo${deleted > 1 ? "s" : ""} from ${folder}.`);
+    }
+    if (failed === 0) {
+      toast.success(deleted > 1 ? `Deleted ${deleted} photos.` : "Photo deleted.");
+    } else if (deleted === 0) {
+      toast.error(isBulk ? "Failed to delete photos." : "Failed to delete photo.");
     } else {
-      toast.success("Photo deleted.");
-      audit(`Deleted a photo from ${folderLabel(confirmTargets[0].folder)}.`);
+      toast.error(`Deleted ${deleted} photo${deleted > 1 ? "s" : ""}; ${failed} could not be deleted.`);
     }
   }
 

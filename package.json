@@ -17,6 +17,7 @@
     "better-auth": "^1.6.22",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "heic2any": "0.0.4",
     "lucide-react": "^1.22.0",
     "maplibre-gl": "^6.11.2",
     "next": "16.2.11",
